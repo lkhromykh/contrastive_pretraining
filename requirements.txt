@@ -1,0 +1,7 @@
+jax
+haiku
+dm-pix
+optax
+chex
+tensorflow_probability
+https://github.com/lkhromykh/rltools.git@dev
