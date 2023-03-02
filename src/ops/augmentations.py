@@ -19,5 +19,5 @@ def random_shift(rng: chex.PRNGKey,
     return dm_pix.random_crop(rng, img, shape)
 
 
-# May add compose augmentations later
+# May be any compose function
 augmentation_fn = random_shift

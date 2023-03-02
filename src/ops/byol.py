@@ -11,7 +11,7 @@ from src import types_ as types
 from .augmentations import augmentation_fn
 
 
-def byol(config: CoderConfig, networks: CoderNetworks):
+def byol(cfg: CoderConfig, networks: CoderNetworks):
 
     def loss_fn(params: hk.Params,
                 target_params: hk.Params,
@@ -19,33 +19,38 @@ def byol(config: CoderConfig, networks: CoderNetworks):
                 img: jax.Array
                 ) -> jax.Array:
         chex.assert_rank(img, 3)
-        chex.assert_type(img, float)
+        chex.assert_type(img, jnp.uint8)
 
         k1, k2 = jax.random.split(rng)
-        view = augmentation_fn(k1, img, config.shift)
-        target_view = augmentation_fn(k2, img, config.shift)
+        view = augmentation_fn(k1, img, cfg.shift)
+        view_prime = augmentation_fn(k2, img, cfg.shift)
 
-        y = networks.encoder(params, view)
-        target_y = networks.encoder(target_params, target_view)
-        z = networks.predictor(params, y)
-        loss = optax.cosine_distance(z, target_y)
-        return jnp.mean(loss)
+        def byol_fn(v, vp):
+            y = networks.encoder(params, v)
+            z = networks.predictor(params, y)
+            target_y = networks.encoder(target_params, vp)
+            return optax.cosine_distance(z, target_y)
 
-    def step(state: TrainingState, batch: types.Trajectory) -> TrainingState:
-        imgs = batch["observations"]
-        imgs = networks.preprocess(imgs)
-        rngs = jax.random.split(state.rng, config.byol_batch_size + 1)
+        return byol_fn(view, view_prime) + byol_fn(view_prime, view)
+
+    @chex.assert_max_traces(2)
+    def step(state: TrainingState,
+             batch: types.Trajectory
+             ) -> tuple[TrainingState, types.Metrics]:
+        params = state.params
+        target_params = state.target_params
+        imgs = batch['observations'][types.IMG_KEY]
+        rngs = jax.random.split(state.rng, cfg.byol_batch_size + 1)
+
         in_axes = 2 * (None,) + 2 * (0,)
-        grad_fn = jax.grad(loss_fn)
+        grad_fn = jax.value_and_grad(loss_fn)
         grad_fn = jax.vmap(grad_fn, in_axes=in_axes)
+        out = grad_fn(params, target_params, rngs[:-1], imgs)
+        loss, grads = jax.tree_util.tree_map(lambda t: jnp.mean(t, 0), out)
 
-        grads = grad_fn(state.params, state.target_params, rngs[:-1], imgs)
-        grads = jax.tree_util.tree_map(lambda t: jnp.mean(t, 0), grads)
-        state = state.update(grads, config.byol_targets_update)
-
-        return state._replace(
-            rng=rngs[-1]
-        )
+        state = state.update(grads)
+        metrics = dict(byol_loss=loss, byol_grads_norm=optax.global_norm(grads))
+        return state._replace(rng=rngs[-1]), metrics
 
     return step
 

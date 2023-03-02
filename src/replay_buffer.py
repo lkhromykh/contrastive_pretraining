@@ -1,33 +1,40 @@
+from collections import deque
+from collections.abc import Generator
+
 import jax
 import jax.numpy as jnp
 
-from .types_ import Trajectory
+from src import types_ as types
 
 
 class ReplayBuffer:
 
-    def __init__(self,
-                 capacity: int,
-                 observation_spec,
-                 action_spec,
-                 mem='cpu'
-                 ) -> None:
-        new_shape = lambda sh: (capacity,) + sh
-        self._observations = jnp.zeros(
-            new_shape(observation_spec.shape),
-            observation_spec.dtype
-        )
-        self._next_observations = jnp.zeros(
-            new_shape(observation_spec.shape),
-            observation_spec.dtype
-        )
-        self._actions = jnp.zeros(
-            new_shape(action_spec.shape),
-            action_spec.dtype
-        )
-        self._rewards = jnp.zeros((capacity, 1), jnp.float32)
-        self._discounts = jnp.zeros((capacity, 1), jnp.float32)
+    def __init__(self, rng: types.RNG, capacity: int, gpu: bool = True) -> None:
+        self._rng = rng
+        self._gpu = gpu
+        self._memory = deque(maxlen=capacity)
 
-        self.capacity = capacity
-        self._cur_idx = 0
+    def add(self, tr: types.Trajectory) -> None:
+        if not self._gpu:
+            tr = jax.device_get(tr)
+        for i in range(len(tr['actions'])):
+            self._memory.append(tree_slice(tr, i))
 
+    def as_generator(self, batch_size: int) -> Generator[types.Trajectory]:
+        while True:
+            self._rng, rng = jax.random.split(self._rng)
+            idx = jax.random.randint(rng, (batch_size,), 0, len(self._memory))
+            batch = [self._memory[i] for i in idx]
+            batch = jax.tree_util.tree_map(
+                lambda *t: jnp.stack(t),
+                *batch
+            )
+            yield jax.device_put(batch)
+
+
+def tree_slice(tree, sl: slice, is_leaf=None):
+    return jax.tree_util.tree_map(
+        lambda t: t[sl],
+        tree,
+        is_leaf=is_leaf
+    )

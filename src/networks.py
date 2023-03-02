@@ -61,9 +61,10 @@ class Encoder(hk.Module):
         self.norm = norm
         
     def __call__(self, img: Array) -> Array:
-        chex.assert_type(img, float)
+        chex.assert_type(img, jnp.uint8)
         chex.assert_rank(img, 3)  # "HWC"
-        x = img
+
+        x = img / 255.
         iter_ = zip(self.depths, self.kernels, self.strides)
         for d, k, s in iter_:
             x = hk.Conv2D(d, k, s, padding='valid')(x)
@@ -77,29 +78,25 @@ class Encoder(hk.Module):
 class Actor(hk.Module):
 
     def __init__(self,
-                 action_spec: dm_env.specs.Array,
+                 action_spec: dm_env.specs.BoundedArray,
                  layers: types.Layers,
                  act: str,
                  norm: str,
-                 min_std: float,
-                 max_std: float,
                  name: str | None = None
                  ) -> None:
         super().__init__(name)
-        assert len(action_spec.shape) == 2, "Supports only discretized spaces."
+        assert len(action_spec.shape) == 2,\
+            "Intentionally Supports only discretized spaces."
         self.action_spec = action_spec
         self.layers = layers
         self.act = act
         self.norm = norm
-        self.min_std = min_std
-        self.max_std = max_std
 
     def __call__(self, state: Array) -> Array:
         chex.assert_rank(state, 1)
         chex.assert_type(state, float)
 
-        mlp = MLP(self.layers, self.act, self.norm)
-        state = mlp(state)
+        state = MLP(self.layers, self.act, self.norm)(state)
         act_sh = self.action_spec.shape
         fc = hk.Linear(act_sh[0] * act_sh[1],
                        w_init=hk.initializers.TruncatedNormal(1e-3)
@@ -131,8 +128,7 @@ class Critic(hk.Module):
         chex.assert_type([state, action], float)
 
         x = jnp.concatenate([state, action.flatten()], -1)
-        mlp = MLP(self.layers, self.act, self.norm)
-        x = mlp(x)
+        x = MLP(self.layers, self.act, self.norm)(x)
         fc = hk.Linear(1, w_init=hk.initializers.TruncatedNormal(1e-2))
         return fc(x)
 
@@ -166,7 +162,7 @@ class CoderNetworks(NamedTuple):
     split_params: Callable
 
     @classmethod
-    def make_networks(
+    def init(
             cls,
             cfg: CoderConfig,
             observation_spec: dm_env.specs.Array,
@@ -195,8 +191,6 @@ class CoderNetworks(NamedTuple):
                 cfg.actor_layers,
                 cfg.activation,
                 cfg.normalization,
-                cfg.actor_min_std,
-                cfg.actor_max_std,
                 name='actor'
             )
             critic = CriticsEnsemble(
@@ -208,9 +202,9 @@ class CoderNetworks(NamedTuple):
             )
 
             def init():
-                img = encoder(dummy_obs['image'])
+                img = encoder(dummy_obs[types.IMG_KEY])
                 img = predictor(img)
-                state = jnp.concatenate([img, dummy_obs['proprio']])
+                state = jnp.concatenate([img, dummy_obs[types.PROPRIO_KEY]])
                 dist = actor(state)
                 critic(state, dist.mean())
 
@@ -223,8 +217,8 @@ class CoderNetworks(NamedTuple):
                 name = module.split('/')[0]
                 return modules.index(name)
 
-            return hk.data_structures.partition_n(split_fn, params,
-                                                  len(modules))
+            return hk.data_structures.partition_n(
+                split_fn, params, len(modules))
 
         init, apply = model
         return cls(
@@ -251,6 +245,6 @@ def _get_norm(norm: str) -> Callable[[Array], Array]:
     if norm == "none":
         return lambda x: x
     if norm == "layer":
-        # decide if scale should be created.
+        # investigate if scale should be created.
         return hk.LayerNorm(axis=-1, create_scale=False, create_offset=False)
     raise ValueError(norm)
