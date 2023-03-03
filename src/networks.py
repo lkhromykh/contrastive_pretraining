@@ -136,18 +136,18 @@ class Critic(hk.Module):
 class CriticsEnsemble(hk.Module):
 
     def __init__(self,
-                 num_critics: int,
+                 ensemble_size: int,
                  *args,
                  name: str | None = None,
                  **kwargs
                  ) -> None:
         super().__init__(name)
-        self.num_critics = num_critics
+        self.ensemble_size = ensemble_size
         self._factory = lambda n: Critic(*args, name=n, **kwargs)
 
     def __call__(self, *args, **kwargs):
         values = []
-        for i in range(self.num_critics):
+        for i in range(self.ensemble_size):
             critic = self._factory(f'critic_{i}')
             values.append(critic(*args, **kwargs))
         return jnp.concatenate(values, -1)
@@ -157,6 +157,7 @@ class CoderNetworks(NamedTuple):
     init: Callable
     encoder: Callable
     predictor: Callable
+    make_state: Callable
     actor: Callable
     critic: Callable
     split_params: Callable
@@ -165,7 +166,7 @@ class CoderNetworks(NamedTuple):
     def init(
             cls,
             cfg: CoderConfig,
-            observation_spec: dm_env.specs.Array,
+            observation_spec: types.ObservationSpecs,
             action_spec: dm_env.specs.BoundedArray
     ) -> 'CoderNetworks':
         dummy_obs = jax.tree_map(
@@ -194,21 +195,37 @@ class CoderNetworks(NamedTuple):
                 name='actor'
             )
             critic = CriticsEnsemble(
-                cfg.num_critic_heads,
+                cfg.ensemble_size,
                 cfg.critic_layers,
                 cfg.activation,
                 cfg.normalization,
                 name='critic'
             )
 
+            def make_state(obs: types.Observation) -> Array:
+                """Encode observation for the rl heads."""
+                features = []
+                if img := obs.get(types.IMG_KEY) is not None:
+                    img = encoder(img)
+                    if cfg.detach_encoder:
+                        img = jax.lax.stop_gradient(img)
+                    features.append(img)
+
+                for key, spec in observation_spec.items():
+                    if len(spec.shape) == 0:
+                        features.append(jnp.expand_dims(obs[key], 0))
+                    if len(spec.shape) == 1:
+                        features.append(obs[key])
+                return jnp.concatenate(features)
+
             def init():
                 img = encoder(dummy_obs[types.IMG_KEY])
-                img = predictor(img)
-                state = jnp.concatenate([img, dummy_obs[types.PROPRIO_KEY]])
+                predictor(img)
+                state = make_state(dummy_obs)
                 dist = actor(state)
                 critic(state, dist.mean())
 
-            return init, (encoder, predictor, actor, critic)
+            return init, (encoder, predictor, make_state, actor, critic)
 
         def split_params(params: hk.Params) -> tuple[hk.Params]:
             modules = ('encoder', 'predictor', 'actor', 'critic')
@@ -225,8 +242,9 @@ class CoderNetworks(NamedTuple):
             init=init,
             encoder=apply[0],
             predictor=apply[1],
-            actor=apply[2],
-            critic=apply[3],
+            make_state=apply[2],
+            actor=apply[3],
+            critic=apply[4],
             split_params=split_params,
         )
 

@@ -14,13 +14,6 @@ from src import types_ as types
 
 def drq(cfg: CoderConfig, networks: CoderNetworks):
 
-    def make_state(rng, params, obs):
-        img = augmentation_fn(rng, obs[types.IMG_KEY], cfg.shift)
-        img = networks.encoder(params, img)
-        if cfg.detach_encoder:
-            img = jax.lax.stop_gradient(img)
-        return jnp.concatenate([img, obs[types.PROPRIO_KEY]])
-
     def critic_loss_fn(value, target_value):
         chex.assert_rank([value, target_value], [1, 0])
         target_value = jax.lax.stop_gradient(target_value)
@@ -32,31 +25,34 @@ def drq(cfg: CoderConfig, networks: CoderNetworks):
                 o_tm1, a_tm1, r_t, disc_t, o_t
                 ) -> jax.Array:
         chex.assert_rank([r_t, a_tm1], [0, 2])
-        rngs = jax.random.split(rng, 3)
+        rngs = jax.random.split(rng, 4)
 
-        s_tm1 = make_state(rngs[0], params, o_tm1)
-        s_t = make_state(rngs[1], target_params, o_t)
+        o_tm1[types.IMG_KEY] = augmentation_fn(
+            rngs[0], o_tm1[types.IMG_KEY], cfg.shift)
+        o_t[types.IMG_KEY] = augmentation_fn(
+            rngs[1], o_t[types.IMG_KEY], cfg.shift)
+        s_tm1 = networks.make_state(params, o_tm1)
+        s_t = networks.make_state(target_params, o_t)
 
         policy_t = networks.actor(params, s_t)
-        policy_tm1 = networks.actor(params, s_tm1)
-        entropy_tm1 = policy_tm1.entropy()
+        entropy_t = policy_t.entropy()
+        a_t = policy_t.sample(seed=rngs[2])
 
-        a_t = policy_t.sample(seed=rngs[2], shape=(cfg.num_actions,))
+        critic_idxs = jax.random.choice(
+            rngs[3], cfg.ensemble_size, (cfg.num_critics,), replace=False)
+        q_t = networks.critic(target_params, s_t, a_t)
+        min_q_t = jnp.take(q_t, critic_idxs).min()
+        v_t = min_q_t + cfg.entropy_coef * entropy_t
+        target_q_tm1 = r_t + cfg.gamma * disc_t * v_t
 
-        q_fn = jax.vmap(networks.critic, in_axes=(None, None, 0))
-        q_t = q_fn(target_params, s_t, a_t)
-        v_t = q_t.min().mean()
         q_tm1 = networks.critic(params, s_tm1, a_tm1)
-        target_q_tm1 =\
-            r_t + cfg.entropy_coef * entropy_tm1 +\
-            cfg.gamma * disc_t * v_t
         critic_loss = critic_loss_fn(q_tm1, target_q_tm1)
-        actor_loss = - v_t
+        actor_loss = - (jnp.mean(q_t) + cfg.entropy_coef * entropy_t)
 
         metrics = dict(
             critic_loss=critic_loss,
             actor_loss=actor_loss,
-            entropy=entropy_tm1,
+            entropy=entropy_t,
             reward=r_t,
             value=v_t
         )
