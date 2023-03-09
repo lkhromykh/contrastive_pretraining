@@ -18,12 +18,12 @@ ObservationSpecs = collections.abc.MutableMapping[str, dm_env.specs.Array]
 
 Policy = collections.abc.Callable[[Observation], Action]
 Layers = collections.abc.Sequence[int]
-Metrics = collections.abc.MutableMapping[str, Array]
+Metrics = collections.abc.MutableMapping[str, Array | float | int]
 
 
 class Trajectory(TypedDict, total=False):
     observations: list[Observation]
     actions: list[Action]
-    reward: list[float]
+    rewards: list[float]
     discounts: list[float]
     next_observations: list[Observation]

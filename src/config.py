@@ -1,8 +1,8 @@
 import dataclasses
 
 from rltools.config import Config
-from src.types_ import Layers
 
+Layers = tuple[int]
 
 # TODO: LayerNorm, ensemble, symmetric sampling. 2302.02948
 
@@ -13,34 +13,34 @@ class CoderConfig(Config):
     shift: int = 4
     byol_batch_size: int = 256
     byol_learning_rate: float = 1e-3
-    byol_targets_update: int | float = 1e-2
+    byol_targets_update: float = 1e-2
 
     # DrQ
     # https://github.com/facebookresearch/drqv2/blob/main/cfgs/config.yaml
     gamma: float = .99
-    utd: int = 20
+    utd: int = 1
     offline_fraction: float = .5
     entropy_coef: float = 0.
     detach_encoder: bool = True
-    drq_batch_size: int = 256
+    drq_batch_size: int = 128
     drq_learning_rate: float = 3e-4
-    drq_targets_update: int | float = 5e-3
+    drq_targets_update: float = 5e-3
 
     # Architecture
     activation: str = 'relu'
-    normalization: str = 'layer'
+    normalization: str = 'none'
 
-    cnn_emb_dim: int = 256
-    cnn_depths: Layers = (3, 3, 3)
-    cnn_kernels: Layers = (3, 3, 3)
-    cnn_strides: Layers = (2, 2, 2)
+    cnn_emb_dim: int = 64
+    cnn_depths: Layers = (32, 32, 32, 32)
+    cnn_kernels: Layers = (3, 3, 3, 3)
+    cnn_strides: Layers = (2, 2, 1, 1)
 
     actor_layers: Layers = (256, 256)
     critic_layers: Layers = (256, 256)
-    ensemble_size: int = 10
+    ensemble_size: int = 2
     num_critics: int = 2
 
-    buffer_capacity: int = 1e6
+    buffer_capacity: int = 1e4
 
-    logdir: str = '/dev/null'
+    logdir: str = 'logdir/test_numactions'
     seed: int = 0

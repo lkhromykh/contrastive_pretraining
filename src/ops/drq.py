@@ -8,7 +8,7 @@ import optax
 from src.config import CoderConfig
 from src.networks import CoderNetworks
 from src.training_state import TrainingState
-from .augmentations import augmentation_fn
+from src.ops.augmentations import augmentation_fn
 from src import types_ as types
 
 
@@ -17,7 +17,7 @@ def drq(cfg: CoderConfig, networks: CoderNetworks):
     def critic_loss_fn(value, target_value):
         chex.assert_rank([value, target_value], [1, 0])
         target_value = jax.lax.stop_gradient(target_value)
-        return jnp.square(value - target_value[jnp.newaxis])
+        return jnp.square(value - target_value[jnp.newaxis]).mean()
 
     def loss_fn(params: hk.Params,
                 target_params: hk.Params,
@@ -36,13 +36,13 @@ def drq(cfg: CoderConfig, networks: CoderNetworks):
 
         policy_t = networks.actor(params, s_t)
         entropy_t = policy_t.entropy()
-        a_t = policy_t.sample(seed=rngs[2])
+        a_t = policy_t.sample(seed=rngs[2], sample_shape=(20,)).astype(a_tm1.dtype)
 
         critic_idxs = jax.random.choice(
             rngs[3], cfg.ensemble_size, (cfg.num_critics,), replace=False)
-        q_t = networks.critic(target_params, s_t, a_t)
-        min_q_t = jnp.take(q_t, critic_idxs).min()
-        v_t = min_q_t + cfg.entropy_coef * entropy_t
+        q_fn = jax.vmap(networks.critic, in_axes=(None, None, 0))
+        q_t = q_fn(target_params, s_t, a_t)
+        v_t = q_t[critic_idxs].min(1).mean() + cfg.entropy_coef * entropy_t
         target_q_tm1 = r_t + cfg.gamma * disc_t * v_t
 
         q_tm1 = networks.critic(params, s_tm1, a_tm1)
@@ -58,10 +58,10 @@ def drq(cfg: CoderConfig, networks: CoderNetworks):
         )
         return critic_loss + actor_loss, metrics
 
-    @chex.assert_max_traces(2)
-    def step(state: TrainingState,
-             batch: types.Trajectory
-             ) -> tuple[TrainingState, types.Metrics]:
+    def _step(state: TrainingState,
+              batch: types.Trajectory
+              ) -> tuple[TrainingState, types.Metrics]:
+        """Single batch step."""
         params = state.params
         target_params = state.target_params
 
@@ -83,5 +83,23 @@ def drq(cfg: CoderConfig, networks: CoderNetworks):
         state = state.update(grads)
         metrics.update(drq_grads_norm=optax.global_norm(grads))
         return state._replace(rng=rngs[-1]), metrics
+
+    @chex.assert_max_traces(2)
+    def step(state: TrainingState,
+             batch: types.Trajectory
+             ) -> tuple[TrainingState, types.Metrics]:
+        """Fusing multiple updates."""
+        chex.assert_shape(batch['rewards'], (cfg.utd * cfg.drq_batch_size,))
+        rng, subkey = jax.random.split(state.rng)
+        state = state._replace(rng=rng)
+        idxs = jnp.arange(len(batch['actions']))
+        metrics = []
+        for group in jnp.split(idxs, cfg.utd):
+            subbatch = jax.tree_util.tree_map(lambda x: x[group], batch)
+            state, met = _step(state, subbatch)
+            metrics.append(met)
+        metrics = jax.tree_util.tree_map(lambda *t: jnp.stack(t), *metrics)
+        metrics = jax.tree_util.tree_map(jnp.mean, metrics)
+        return state, metrics
 
     return step

@@ -62,16 +62,16 @@ class Encoder(hk.Module):
         
     def __call__(self, img: Array) -> Array:
         chex.assert_type(img, jnp.uint8)
-        chex.assert_rank(img, 3)  # "HWC"
+        chex.assert_rank(img, 3)  # HWC
 
-        x = img / 255.
+        x = img / 255
         iter_ = zip(self.depths, self.kernels, self.strides)
         for d, k, s in iter_:
             x = hk.Conv2D(d, k, s, padding='valid')(x)
             x = _get_norm(self.norm)(x)
             x = _get_act(self.act)(x)
 
-        emb = hk.Linear(self.emb_dim, name="projector")
+        emb = hk.Linear(self.emb_dim, name='projector')
         return emb(x.flatten())
 
 
@@ -86,20 +86,20 @@ class Actor(hk.Module):
                  ) -> None:
         super().__init__(name)
         assert len(action_spec.shape) == 2,\
-            "Intentionally Supports only discretized spaces."
+            'Intentionally supports only discretized spaces.'
         self.action_spec = action_spec
         self.layers = layers
         self.act = act
         self.norm = norm
 
-    def __call__(self, state: Array) -> Array:
+    def __call__(self, state: Array) -> tfd.Distribution:
         chex.assert_rank(state, 1)
         chex.assert_type(state, float)
 
         state = MLP(self.layers, self.act, self.norm)(state)
         act_sh = self.action_spec.shape
         fc = hk.Linear(act_sh[0] * act_sh[1],
-                       w_init=hk.initializers.TruncatedNormal(1e-3)
+                       w_init=hk.initializers.TruncatedNormal(1e-2)
                        )
         logits = fc(state).reshape(act_sh)
         dist = tfd.OneHotCategorical(logits)
@@ -127,7 +127,7 @@ class Critic(hk.Module):
         chex.assert_rank([state, action], [1, 2])
         chex.assert_type([state, action], float)
 
-        x = jnp.concatenate([state, action.flatten()], -1)
+        x = jnp.concatenate([state, action.flatten()])
         x = MLP(self.layers, self.act, self.norm)(x)
         fc = hk.Linear(1, w_init=hk.initializers.TruncatedNormal(1e-2))
         return fc(x)
@@ -155,15 +155,18 @@ class CriticsEnsemble(hk.Module):
 
 class CoderNetworks(NamedTuple):
     init: Callable
+
     encoder: Callable
     predictor: Callable
-    make_state: Callable
     actor: Callable
     critic: Callable
+
+    act: Callable
+    make_state: Callable
     split_params: Callable
 
     @classmethod
-    def init(
+    def make_networks(
             cls,
             cfg: CoderConfig,
             observation_spec: types.ObservationSpecs,
@@ -186,7 +189,7 @@ class CoderNetworks(NamedTuple):
                 cfg.normalization,
                 name='encoder'
             )
-            predictor = hk.Linear(cfg.cnn_emb_dim, name="predictor")
+            predictor = hk.Linear(cfg.cnn_emb_dim, name='predictor')
             actor = Actor(
                 action_spec,
                 cfg.actor_layers,
@@ -205,18 +208,29 @@ class CoderNetworks(NamedTuple):
             def make_state(obs: types.Observation) -> Array:
                 """Encode observation for the rl heads."""
                 features = []
-                if img := obs.get(types.IMG_KEY) is not None:
+                if (img := obs.get(types.IMG_KEY)) is not None:
                     img = encoder(img)
                     if cfg.detach_encoder:
                         img = jax.lax.stop_gradient(img)
-                    features.append(img)
+                    # features.append(img)
 
-                for key, spec in observation_spec.items():
-                    if len(spec.shape) == 0:
-                        features.append(jnp.expand_dims(obs[key], 0))
-                    if len(spec.shape) == 1:
-                        features.append(obs[key])
-                return jnp.concatenate(features)
+                for key, spec in sorted(observation_spec.items()):
+                    if len(spec.shape) in {0, 1}:
+                        features.append(jnp.atleast_1d(obs[key]))
+                return jnp.concatenate(features, -1)
+
+            def act(rng: types.RNG,
+                    obs: types.Observation,
+                    training: bool
+                    ) -> Array:
+                state = make_state(obs)
+                dist = actor(state)
+                action = jax.lax.select(
+                    training,
+                    dist.sample(seed=rng).astype(jnp.float32),
+                    dist.mean().astype(jnp.float32)
+                )
+                return action
 
             def init():
                 img = encoder(dummy_obs[types.IMG_KEY])
@@ -225,7 +239,7 @@ class CoderNetworks(NamedTuple):
                 dist = actor(state)
                 critic(state, dist.mean())
 
-            return init, (encoder, predictor, make_state, actor, critic)
+            return init, (encoder, predictor, actor, critic, act, make_state)
 
         def split_params(params: hk.Params) -> tuple[hk.Params]:
             modules = ('encoder', 'predictor', 'actor', 'critic')
@@ -242,15 +256,16 @@ class CoderNetworks(NamedTuple):
             init=init,
             encoder=apply[0],
             predictor=apply[1],
-            make_state=apply[2],
-            actor=apply[3],
-            critic=apply[4],
+            actor=apply[2],
+            critic=apply[3],
+            act=apply[4],
+            make_state=apply[5],
             split_params=split_params,
         )
 
 
 def _get_act(act: str) -> Callable[[Array], Array]:
-    if act == "none":
+    if act == 'none':
         return lambda x: x
     if hasattr(jax.lax, act):
         return getattr(jax.lax, act)
@@ -260,9 +275,14 @@ def _get_act(act: str) -> Callable[[Array], Array]:
 
 
 def _get_norm(norm: str) -> Callable[[Array], Array]:
-    if norm == "none":
-        return lambda x: x
-    if norm == "layer":
-        # investigate if scale should be created.
-        return hk.LayerNorm(axis=-1, create_scale=False, create_offset=False)
-    raise ValueError(norm)
+    match norm:
+        case 'none':
+            return lambda x: x
+        case 'layer':
+            return hk.LayerNorm(
+                axis=-1,
+                create_scale=False,
+                create_offset=False
+            )
+        case _:
+            raise ValueError(norm)

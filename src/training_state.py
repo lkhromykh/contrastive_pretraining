@@ -8,16 +8,17 @@ import optax
 
 @jax.tree_util.register_pytree_node_class
 class TrainingState(NamedTuple):
+
     params: hk.Params
     target_params: hk.Params
     opt_state: optax.OptState
     rng: jax.random.PRNGKey
-    target_update_var: float | int
+    target_update_var: float
     step: int
 
     tx: optax.TransformUpdateFn
 
-    def update(self, grads: hk.Params):
+    def update(self, grads: hk.Params) -> 'TrainingState':
         params = self.params
         target_params = self.target_params
         opt_state = self.opt_state
@@ -26,13 +27,8 @@ class TrainingState(NamedTuple):
         updates, opt_state = self.tx(grads, opt_state, params=params)
         params = optax.apply_updates(params, updates)
 
-        if isinstance(tv := self.target_update_var, int):
-            # Hard update.
-            target_params = optax.periodic_update(
-                params, target_params, step, tv)
-        else:
-            # Polyak update.
-            target_params = optax.incremental_update(params, target_params, tv)
+        target_params = optax.incremental_update(
+            params, target_params, self.target_update_var)
 
         return self._replace(
             params=params,
@@ -46,19 +42,15 @@ class TrainingState(NamedTuple):
              rng: jax.random.PRNGKey,
              params: hk.Params,
              optim: optax.GradientTransformation,
-             target_update_var: float | int
-             ):
-        if isinstance(tv := target_update_var, int):
-            tv = jnp.int32(tv)
-        else:
-            tv = jnp.float32(tv)
+             target_update_var: float
+             ) -> 'TrainingState':
         return cls(
             params=params,
             target_params=params,
             opt_state=optim.init(params),
             rng=rng,
             tx=optim.update,
-            target_update_var=tv,
+            target_update_var=jnp.array(target_update_var),
             step=jnp.int32(0)
         )
 
