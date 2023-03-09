@@ -1,5 +1,7 @@
 import os
+import pickle
 
+import dm_env
 from dm_control import suite
 from dm_control.suite.wrappers import pixels
 
@@ -21,14 +23,24 @@ from src import types_ as types
 
 class Builder:
 
+    CONFIG = 'config.yaml'
+    REPLAY = 'replay.npz'
+    ENCODER = 'encoder.pkl'
+    AGENT = 'agent.pkl'
+
     def __init__(self, cfg: CoderConfig) -> None:
         self.cfg = cfg
         self._rngseq = hk.PRNGSequence(jax.random.PRNGKey(cfg.seed))
         if not os.path.exists(cfg.logdir):
             os.makedirs(cfg.logdir)
-            cfg.save(cfg.logdir + '/config.yaml')
+            cfg_path = self._exp_path(Builder.CONFIG)
+            cfg.save(cfg_path)
+
+    def run_replay_collection(self):
+        """Prepare expert's demonstrations."""
 
     def run_byol(self):
+        """Visual pretraining."""
         c = self.cfg
         np_rng = next(self._rngseq)[0].item()
         replay = ReplayBuffer(np_rng, c.buffer_capacity)
@@ -40,6 +52,7 @@ class Builder:
         raise NotImplementedError
 
     def run_drq(self):
+        """RL on top of prefilled buffer and trained visual net."""
         c = self.cfg
         env = self.make_env()
         networks = self.make_networks(env)
@@ -54,7 +67,10 @@ class Builder:
                                    c.drq_targets_update)
         act = jax.jit(networks.act)
         step = jax.jit(drq(c, networks))
+
         logger = TFSummaryLogger(c.logdir, 'train', step_key='step')
+        replay_path = self._exp_path(Builder.REPLAY)
+        agent_path = self._exp_path(Builder.AGENT)
 
         ts = env.reset()
         interactions = 0
@@ -78,32 +94,41 @@ class Builder:
                 metrics.update(step=state.step.item())
                 logger.write(metrics)
 
-            if interactions % 10000 == 0:
+            if interactions % 20000 == 0:
                 def policy(obs_):
                     return act(state.params, next(self._rngseq), obs_, False)
                 trajectory = environment.environment_loop(env, policy)
-                print(f"Eval reward {sum(trajectory['rewards'])} on step {interactions}")
+                print(f'Eval reward {sum(trajectory["rewards"])}'
+                      f'on step {interactions}')
 
-    def make_replay_buffer(self, load=None):
+                replay.save(replay_path)
+                with open(agent_path, 'wb') as f:
+                    # TODO: avoid saving tx but save a whole state.
+                    pickle.dump(jax.device_get(state.params), f)
+
+    def make_replay_buffer(self, load: str | None = None) -> ReplayBuffer:
         np_rng = next(self._rngseq)[0].item()
         replay = ReplayBuffer(np_rng, self.cfg.buffer_capacity)
         if load is not None:
-            replay.load(self.cfg.logdir + load)
+            replay.load(self._exp_path(load))
         return replay
 
-    def make_env(self):
-        env = suite.load('cartpole', 'balance')
+    def make_env(self) -> dm_env.Environment:
+        env = suite.load('walker', 'walk')
         env = pixels.Wrapper(env,
-                             pixels_only=False,
+                             pixels_only=True,
                              render_kwargs={'width': 84, 'height': 84},
                              observation_key=types.IMG_KEY
                              )
+        env = dmc_wrappers.ActionRepeat(env, 2)
         env = dmc_wrappers.ActionRescale(env)
         env = dmc_wrappers.DiscreteActionWrapper(env, 11)
         environment.assert_valid_env(env)
         return env
 
-    def make_networks(self, env=None):
+    def make_networks(self,
+                      env: dm_env.Environment | None = None
+                      ) -> CoderNetworks:
         env = env or self.make_env()
         networks = CoderNetworks.make_networks(
             self.cfg,
@@ -111,3 +136,7 @@ class Builder:
             env.action_spec()
         )
         return networks
+
+    def _exp_path(self, path: str) -> str:
+        logdir = os.path.abspath(self.cfg.logdir)
+        return os.path.join(logdir, path)

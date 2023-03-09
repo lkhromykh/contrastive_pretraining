@@ -6,6 +6,7 @@ Layers = tuple[int]
 
 # TODO: LayerNorm, ensemble, symmetric sampling. 2302.02948
 
+
 @dataclasses.dataclass
 class CoderConfig(Config):
     # BYOL
@@ -20,8 +21,9 @@ class CoderConfig(Config):
     gamma: float = .99
     utd: int = 1
     offline_fraction: float = .5
-    entropy_coef: float = 0.
-    detach_encoder: bool = True
+    entropy_coef: float = 1e-5
+    num_actions: int = 20
+    detach_encoder: bool = False
     drq_batch_size: int = 128
     drq_learning_rate: float = 3e-4
     drq_targets_update: float = 5e-3
@@ -40,7 +42,7 @@ class CoderConfig(Config):
     ensemble_size: int = 2
     num_critics: int = 2
 
-    buffer_capacity: int = 1e4
+    buffer_capacity: int = 1e5
 
-    logdir: str = 'logdir/test_numactions'
+    logdir: str = 'logdir/test_visonly'
     seed: int = 0

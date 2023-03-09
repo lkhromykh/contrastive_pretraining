@@ -125,7 +125,7 @@ class Critic(hk.Module):
                  action: Array,
                  ) -> Array:
         chex.assert_rank([state, action], [1, 2])
-        chex.assert_type([state, action], float)
+        chex.assert_type([state, action], [float, int])
 
         x = jnp.concatenate([state, action.flatten()])
         x = MLP(self.layers, self.act, self.norm)(x)
@@ -212,7 +212,7 @@ class CoderNetworks(NamedTuple):
                     img = encoder(img)
                     if cfg.detach_encoder:
                         img = jax.lax.stop_gradient(img)
-                    # features.append(img)
+                    features.append(img)
 
                 for key, spec in sorted(observation_spec.items()):
                     if len(spec.shape) in {0, 1}:
@@ -227,8 +227,8 @@ class CoderNetworks(NamedTuple):
                 dist = actor(state)
                 action = jax.lax.select(
                     training,
-                    dist.sample(seed=rng).astype(jnp.float32),
-                    dist.mean().astype(jnp.float32)
+                    dist.sample(seed=rng),
+                    dist.mode()
                 )
                 return action
 
@@ -237,7 +237,7 @@ class CoderNetworks(NamedTuple):
                 predictor(img)
                 state = make_state(dummy_obs)
                 dist = actor(state)
-                critic(state, dist.mean())
+                critic(state, dist.mode())
 
             return init, (encoder, predictor, actor, critic, act, make_state)
 

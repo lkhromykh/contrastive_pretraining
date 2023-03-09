@@ -24,7 +24,7 @@ class TrainingState(NamedTuple):
         opt_state = self.opt_state
         step = self.step
 
-        updates, opt_state = self.tx(grads, opt_state, params=params)
+        updates, opt_state = self.tx(grads, opt_state, params)
         params = optax.apply_updates(params, updates)
 
         target_params = optax.incremental_update(
@@ -50,7 +50,7 @@ class TrainingState(NamedTuple):
             opt_state=optim.init(params),
             rng=rng,
             tx=optim.update,
-            target_update_var=jnp.array(target_update_var),
+            target_update_var=jnp.asarray(target_update_var),
             step=jnp.int32(0)
         )
 

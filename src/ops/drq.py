@@ -19,6 +19,13 @@ def drq(cfg: CoderConfig, networks: CoderNetworks):
         target_value = jax.lax.stop_gradient(target_value)
         return jnp.square(value - target_value[jnp.newaxis]).mean()
 
+    def actor_loss_fn(policy, q_values, actions):
+        chex.assert_rank([q_values, actions], [1, 3])
+        q_values, actions = jax.lax.stop_gradient((q_values, actions))
+        adv = q_values - q_values.mean()
+        normalized_weights = jax.nn.softmax(adv / cfg.entropy_coef)
+        return -jnp.sum(normalized_weights * policy.log_prob(actions))
+
     def loss_fn(params: hk.Params,
                 target_params: hk.Params,
                 rng: types.RNG,
@@ -36,7 +43,7 @@ def drq(cfg: CoderConfig, networks: CoderNetworks):
 
         policy_t = networks.actor(params, s_t)
         entropy_t = policy_t.entropy()
-        a_t = policy_t.sample(seed=rngs[2], sample_shape=(20,)).astype(a_tm1.dtype)
+        a_t = policy_t.sample(seed=rngs[2], sample_shape=(cfg.num_actions,))
 
         critic_idxs = jax.random.choice(
             rngs[3], cfg.ensemble_size, (cfg.num_critics,), replace=False)
@@ -47,7 +54,7 @@ def drq(cfg: CoderConfig, networks: CoderNetworks):
 
         q_tm1 = networks.critic(params, s_tm1, a_tm1)
         critic_loss = critic_loss_fn(q_tm1, target_q_tm1)
-        actor_loss = - (jnp.mean(q_t) + cfg.entropy_coef * entropy_t)
+        actor_loss = actor_loss_fn(policy_t, q_t.mean(1), a_t)
 
         metrics = dict(
             critic_loss=critic_loss,

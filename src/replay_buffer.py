@@ -1,4 +1,4 @@
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 
 import numpy as np
 from jax.tree_util import tree_map
@@ -28,13 +28,14 @@ class ReplayBuffer:
             self._allocate(tr)
         # inplace nested memory update via tree_map?
         for k, v in tr.items():
-            if isinstance(v, dict):
+            if isinstance(v, Mapping):
                 for vk, vv in v.items():
                     self._memory[k][vk][self._idx] = vv
             else:
                 self._memory[k][self._idx] = v
-        self._idx = (self._idx + 1) % self.capacity
+        self._idx += 1
         self._len = max(self._idx, self._len)
+        self._idx %= self.capacity
 
     def as_generator(self, batch_size: int) -> Generator[types.Trajectory]:
         while True:
@@ -56,14 +57,19 @@ class ReplayBuffer:
         return self._len
 
     def save(self, file: str) -> None:
-        np.savez(file, **self._memory)
+        meta = (self._idx, self._len)
+        np.savez(file, meta=meta, **self._memory)
 
     def load(self, file: str) -> None:
         assert self._memory is None
         data = np.load(file, allow_pickle=True)
         self._memory = {}
         for k, v in data.items():
-            self._memory[k] = v
+            if k != 'meta':
+                if v.dtype == object:
+                    v = v.item()
+                self._memory[k] = v
+        self._idx, self._len = data['meta']
 
 
 def tree_slice(tree_: 'T', sl: slice) -> 'T':
