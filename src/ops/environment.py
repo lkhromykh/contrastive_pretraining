@@ -34,5 +34,6 @@ def assert_valid_env(env: dm_env.Environment) -> None:
         f'Invalid image spec: {img}'
 
     act_spec = env.action_spec()
-    assert isinstance(act_spec, dm_env.specs.BoundedArray), act_spec
-    assert len(act_spec.shape) == 2, act_spec
+    assert isinstance(act_spec, dm_env.specs.BoundedArray), \
+        f'Unbounded action space: {act_spec}'
+    assert len(act_spec.shape) == 2, f'Discretized space required{act_spec}'

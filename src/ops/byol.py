@@ -1,3 +1,5 @@
+from typing import Callable
+
 import chex
 import jax
 import jax.numpy as jnp
@@ -11,7 +13,7 @@ from src import types_ as types
 from .augmentations import augmentation_fn
 
 
-def byol(cfg: CoderConfig, networks: CoderNetworks):
+def byol(cfg: CoderConfig, networks: CoderNetworks) -> Callable:
 
     def loss_fn(params: hk.Params,
                 target_params: hk.Params,
@@ -39,8 +41,12 @@ def byol(cfg: CoderConfig, networks: CoderNetworks):
              ) -> tuple[TrainingState, types.Metrics]:
         params = state.params
         target_params = state.target_params
-        imgs = batch['observations'][types.IMG_KEY]
-        rngs = jax.random.split(state.rng, cfg.byol_batch_size + 1)
+        imgs = jnp.concatenate([
+            batch['observations'][types.IMG_KEY],
+            batch['next_observations'][types.IMG_KEY]
+        ])
+
+        rngs = jax.random.split(state.rng, 2*cfg.byol_batch_size + 1)
 
         in_axes = 2 * (None,) + 2 * (0,)
         grad_fn = jax.value_and_grad(loss_fn)

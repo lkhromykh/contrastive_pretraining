@@ -85,8 +85,6 @@ class Actor(hk.Module):
                  name: str | None = None
                  ) -> None:
         super().__init__(name)
-        assert len(action_spec.shape) == 2,\
-            'Intentionally supports only discretized spaces.'
         self.action_spec = action_spec
         self.layers = layers
         self.act = act
@@ -154,6 +152,7 @@ class CriticsEnsemble(hk.Module):
 
 
 class CoderNetworks(NamedTuple):
+
     init: Callable
 
     encoder: Callable
@@ -208,15 +207,17 @@ class CoderNetworks(NamedTuple):
             def make_state(obs: types.Observation) -> Array:
                 """Encode observation for the rl heads."""
                 features = []
-                if (img := obs.get(types.IMG_KEY)) is not None:
-                    img = encoder(img)
-                    if cfg.detach_encoder:
-                        img = jax.lax.stop_gradient(img)
-                    features.append(img)
-
                 for key, spec in sorted(observation_spec.items()):
-                    if len(spec.shape) in {0, 1}:
-                        features.append(jnp.atleast_1d(obs[key]))
+                    match len(spec.shape), spec.dtype:
+                        case 0 | 1, _:
+                            feat = jnp.atleast_1d(obs[key])
+                        case 3, jnp.uint8:
+                            feat = encoder(obs[key])
+                            if cfg.detach_encoder:
+                                feat = jax.lax.stop_gradient(feat)
+                        case _:
+                            raise NotImplementedError(spec)
+                    features.append(feat)
                 return jnp.concatenate(features, -1)
 
             def act(rng: types.RNG,
@@ -283,6 +284,11 @@ def _get_norm(norm: str) -> Callable[[Array], Array]:
                 axis=-1,
                 create_scale=False,
                 create_offset=False
+            )
+        case 'rms':
+            return hk.RMSNorm(
+                axis=-1,
+                create_scale=False
             )
         case _:
             raise ValueError(norm)

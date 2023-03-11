@@ -4,5 +4,7 @@ haiku
 dm-pix
 optax
 chex
+tensorflow
 tensorflow_probability
-https://github.com/lkhromykh/rltools.git@dev
+git+https://github.com/lkhromykh/rltools.git@dev
+git+https://github.com/RQC-Robotics/ur5-env.git@dev

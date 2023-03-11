@@ -1,3 +1,5 @@
+from typing import Callable
+
 import jax
 import jax.numpy as jnp
 
@@ -12,7 +14,7 @@ from src.ops.augmentations import augmentation_fn
 from src import types_ as types
 
 
-def drq(cfg: CoderConfig, networks: CoderNetworks):
+def drq(cfg: CoderConfig, networks: CoderNetworks) -> Callable:
 
     def critic_loss_fn(value, target_value):
         chex.assert_rank([value, target_value], [1, 0])
@@ -49,6 +51,7 @@ def drq(cfg: CoderConfig, networks: CoderNetworks):
             rngs[3], cfg.ensemble_size, (cfg.num_critics,), replace=False)
         q_fn = jax.vmap(networks.critic, in_axes=(None, None, 0))
         q_t = q_fn(target_params, s_t, a_t)
+        # q_t = jnp.clip(q_t, 0, 1)
         v_t = q_t[critic_idxs].min(1).mean() + cfg.entropy_coef * entropy_t
         target_q_tm1 = r_t + cfg.gamma * disc_t * v_t
 

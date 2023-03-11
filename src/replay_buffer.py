@@ -1,7 +1,9 @@
-from collections.abc import Generator, Mapping
+from collections.abc import Generator, Mapping, Iterator
 
 import numpy as np
 from jax.tree_util import tree_map
+import tensorflow as tf
+tf.config.set_visible_devices([], 'GPU')
 
 from src import types_ as types
 
@@ -19,15 +21,17 @@ class ReplayBuffer:
         self._rng = rng
         self.capacity = capacity
 
-        self._memory = None
+        self._memory = {}
         self._idx = 0
         self._len = 0
 
-    def add(self, tr: types.Trajectory) -> None:
-        if self._memory is None:
-            self._allocate(tr)
+    def add(self,
+            transition: Mapping[str, np.generic | Mapping[str, np.generic]]
+            ) -> None:
+        if not self._memory:
+            self._allocate(transition)
         # inplace nested memory update via tree_map?
-        for k, v in tr.items():
+        for k, v in transition.items():
             if isinstance(v, Mapping):
                 for vk, vv in v.items():
                     self._memory[k][vk][self._idx] = vv
@@ -37,7 +41,20 @@ class ReplayBuffer:
         self._len = max(self._idx, self._len)
         self._idx %= self.capacity
 
-    def as_generator(self, batch_size: int) -> Generator[types.Trajectory]:
+    def as_dataset(self, batch_size: int) -> tf.data.Dataset:
+        gen = lambda: self._yield_batch(batch_size)
+        signature = tree_map(
+            lambda x: tf.TensorSpec(x.shape, x.dtype),
+            next(gen())
+        )
+        ds = tf.data.Dataset.from_generator(
+            gen,
+            output_signature=signature
+        )
+        ds = ds.prefetch(tf.data.AUTOTUNE)
+        return NumpyIterator(ds)
+
+    def _yield_batch(self, batch_size: int) -> Generator[types.Trajectory]:
         while True:
             idx = self._rng.integers(0, self._len, batch_size)
             batch = tree_slice(self._memory, idx)
@@ -45,8 +62,6 @@ class ReplayBuffer:
 
     def _allocate(self, tr: types.Trajectory) -> None:
         """Allocate memory with the same structure as a probe."""
-        self._memory = {}
-
         def empty(x):
             x = np.asanyarray(x)
             return np.zeros((self.capacity, ) + x.shape, x.dtype)
@@ -57,20 +72,51 @@ class ReplayBuffer:
         return self._len
 
     def save(self, file: str) -> None:
-        meta = (self._idx, self._len)
-        np.savez(file, meta=meta, **self._memory)
+        meta = (self._rng, self.capacity, self._idx, self._len)
+        np.savez_compressed(file, meta=meta, **self._memory)
 
-    def load(self, file: str) -> None:
-        assert self._memory is None
+    @classmethod
+    def load(cls, file: str) -> 'ReplayBuffer':
         data = np.load(file, allow_pickle=True)
-        self._memory = {}
+        rng, capacity, idx, len_ = data['meta']
+        replay = cls(rng, capacity)
+        replay._idx = idx
+        replay._len = len_
         for k, v in data.items():
-            if k != 'meta':
-                if v.dtype == object:
-                    v = v.item()
-                self._memory[k] = v
-        self._idx, self._len = data['meta']
+            if k == 'meta':
+                continue
+            if v.dtype == object:
+                v = v.item()
+            replay._memory[k] = v
+        return replay
 
 
 def tree_slice(tree_: 'T', sl: slice) -> 'T':
     return tree_map(lambda t: t[sl], tree_)
+
+
+# Taken from https://github.com/deepmind/acme
+class NumpyIterator(Iterator[types.Trajectory]):
+    """Iterator over a dataset with elements converted to numpy.
+    Note: This iterator returns read-only numpy arrays.
+    This iterator (compared to `tf.data.Dataset.as_numpy_iterator()`) does not
+    copy the data when comverting `tf.Tensor`s to `np.ndarray`s.
+    TODO(b/178684359): Remove this when it is upstreamed into `tf.data`.
+    """
+
+    __slots__ = ['_iterator']
+
+    def __init__(self, dataset):
+        self._iterator: Iterator[types.Trajectory] = iter(dataset)
+
+    def __iter__(self) -> 'NumpyIterator':
+        return self
+
+    def __next__(self) -> types.Trajectory:
+        return tree_map(
+            lambda t: np.asarray(memoryview(t)),
+            next(self._iterator)
+        )
+
+    def next(self):
+        return self.__next__()
