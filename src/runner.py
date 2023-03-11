@@ -3,12 +3,12 @@ import pickle
 import time
 from typing import NamedTuple
 
-import dm_env
+import numpy as np
 
 import jax
-import jax.numpy as jnp
 import haiku as hk
 import optax
+import rltools.dmc_wrappers.base
 
 from rltools.loggers import TFSummaryLogger
 from rltools import dmc_wrappers
@@ -24,15 +24,17 @@ from src import types_ as types
 class Runner:
 
     CONFIG = 'config.yaml'
-    REPLAY = 'replay.npz'
+    SPECS = 'specs.pkl'
+    DEMO = 'demo.npz'
     ENCODER = 'encoder.pkl'
+    REPLAY = 'replay.npz'
     AGENT = 'agent.pkl'
 
     class Status(NamedTuple):
-
-        path_exists: bool = False
-        replay_exists: bool = False
+        specs_exists: bool = False
+        demo_exists: bool = False
         encoder_exists: bool = False
+        replay_exists: bool = False
         agent_exists: bool = False
 
         @classmethod
@@ -41,49 +43,69 @@ class Runner:
                 return cls()
             statuses = map(
                 lambda p: os.path.exists(logdir + '/' + p),
-                (Runner.REPLAY, Runner.ENCODER, Runner.AGENT)
+                (Runner.SPECS, Runner.DEMO, Runner.ENCODER,
+                 Runner.REPLAY, Runner.AGENT)
             )
-            return cls(True, *statuses)
+            return cls(*statuses)
 
     def __init__(self, cfg: CoderConfig) -> None:
         self.cfg = cfg
         self._rngseq = hk.PRNGSequence(jax.random.PRNGKey(cfg.seed))
         if not os.path.exists(cfg.logdir):
             os.makedirs(cfg.logdir)
-            cfg_path = self._exp_path(Runner.CONFIG)
-            cfg.save(cfg_path)
+        cfg_path = self._exp_path(Runner.CONFIG)
+        cfg.save(cfg_path)
 
-    def run_replay_collection(self, policy: types.Policy) -> None:
+    def run_replay_collection(self) -> None:
         """Prepare expert's demonstrations."""
-        env = self.make_env()
-        replay = self.make_replay_buffer()
-        com = None
+        # Instead of collection we parse existing one.
+        status = Runner.Status.infer(self._exp_path())
+        assert not status.demo_exists, 'Already exists.'
 
-        while com != 'fin':
-            match input():
-                case 'add':
-                    trajectory = environment.environment_loop(env, policy)
-                    for i in range(len(trajectory['actions'])):
-                        replay.add(tree_slice(trajectory, i))
-                case 'fin':
-                    print(f'Total transitions: {len(replay)}')
-                    replay.save(self._exp_path(Runner.REPLAY))
-                    return
-                case _:
-                    continue
+        env_specs = pickle.load(open(self._exp_path(Runner.SPECS), 'rb'))
+        act_sp = env_specs.action_spec
+        replay = self.make_replay_buffer()
+
+        def action_fn(action):
+            """Discretize loaded actions."""
+            action = action.astype(np.int32)
+            disc = np.zeros(act_sp.shape, act_sp.dtype)
+            disc[range(action.size), action] = (action != 0)
+            return disc
+
+        idx = 0
+        while os.path.exists(path := self._exp_path(f'traj{idx}')):
+            trajectory: types.Trajectory = pickle.load(open(path, 'rb'))
+            actions = trajectory['actions']
+            trajectory['actions'] = list(map(action_fn, actions))
+
+            for i in range(len(actions)):
+                replay.add(
+                    tree_slice(
+                        trajectory, i,
+                        is_leaf=lambda t: isinstance(t, list)
+                    )
+                )
+            idx += 1
+
+        print('Total episodes: ', idx)
+        print('Total steps: ', len(replay))
+        replay.save(self._exp_path(Runner.DEMO))
 
     def run_byol(self):
         """Visual pretraining."""
         status = Runner.Status.infer(self._exp_path())
-        assert status.replay_exists, 'Nothing to pretrain from.'
+        assert status.specs_exists and status.demo_exists, \
+            'Nothing to pretrain from.'
         assert not status.encoder_exists, 'Already exists.'
 
         start = time.time()
         c = self.cfg
-        replay = self.make_replay_buffer(Runner.REPLAY)
-        ds = replay.as_dataset(c.byol_batch_size)
+        replay = self.make_replay_buffer(self._exp_path(Runner.DEMO))
+        env_specs = pickle.load(open(self._exp_path(Runner.SPECS), 'rb'))
+        ds = replay.as_dataset(c.byol_batch_size).as_numpy_iterator()
 
-        networks = self.make_networks()
+        networks = self.make_networks(env_specs)
         params = networks.init(next(self._rngseq))
         optim = optax.adam(c.byol_learning_rate)
         optim = optax.chain(optax.clip_by_global_norm(c.max_grad), optim)
@@ -100,6 +122,7 @@ class Runner:
             state, metrics = step(state, batch)
             metrics.update(step=t, time=time.time() - start)
             logger.write(metrics)
+            print(metrics)
 
         with open(self._exp_path(Runner.ENCODER), 'wb') as f:
             params = jax.device_get(state.params)
@@ -108,19 +131,18 @@ class Runner:
     def run_drq(self):
         """RL on top of prefilled buffer and trained visual net."""
         status = Runner.Status.infer(self._exp_path())
-        assert status.replay_exists and status.encoder_exists
-        assert not status.agent_exists, 'Already exists.'
+        assert status.demo_exists and status.encoder_exists
+        assert not (status.replay_exists or status.agent_exists), \
+            'Already exists.'
 
         start = time.time()
         c = self.cfg
         env = self.make_env()
-        networks = self.make_networks(env)
+        networks = self.make_networks(env.environment_specs)
         with open(self._exp_path(Runner.ENCODER), 'rb') as f:
             params = pickle.load(f)
         params = jax.device_put(params)
 
-        replay = self.make_replay_buffer(Runner.REPLAY)
-        ds = replay.as_dataset(c.drq_batch_size * c.utd)
         optim = optax.adam(c.drq_learning_rate)
         optim = optax.chain(optax.clip_by_global_norm(c.max_grad), optim)
         state = TrainingState.init(next(self._rngseq),
@@ -134,9 +156,16 @@ class Runner:
         replay_path = self._exp_path(Runner.REPLAY)
         agent_path = self._exp_path(Runner.AGENT)
 
+        replay = self.make_replay_buffer(replay_path)
+        demo = self.make_replay_buffer(self._exp_path(Runner.DEMO))
+        half_batch = c.drq_batch_size * c.utd // 2
+        demo_ds = demo.as_dataset(half_batch)
+        agent_ds = replay.as_dataset(half_batch)
+        ds = demo_ds.concatenate(agent_ds).as_numpy_iterator()
+
         ts = env.reset()
         interactions = 0
-        while interactions != 1e7:
+        while True:
             if ts.last():
                 ts = env.reset()
             obs = ts.observation
@@ -150,16 +179,18 @@ class Runner:
                 'discounts': ts.discount,
                 'next_observations': ts.observation
             })
-            if len(replay) > 2e3:
-                batch = jax.device_put(next(ds))
-                state, metrics = step(state, batch)
-                metrics.update(step=state.step.item(), time=time.time() - start)
-                logger.write(metrics)
+            if len(replay) < half_batch:
+                continue
+            batch = jax.device_put(next(ds))
+            state, metrics = step(state, batch)
+            metrics.update(step=state.step.item(), time=time.time() - start)
+            logger.write(metrics)
 
             if interactions % c.drq_eval_every == 0:
                 def policy(obs_):
                     return act(state.params, next(self._rngseq), obs_, False)
                 trajectory = environment.environment_loop(env, policy)
+                ts = env.reset()
                 logger.write({
                     'step': interactions,
                     'eval_return': sum(trajectory['rewards'])
@@ -176,7 +207,7 @@ class Runner:
         replay = ReplayBuffer(np_rng, self.cfg.buffer_capacity)
         return replay
 
-    def make_env(self) -> dm_env.Environment:
+    def make_env(self) -> rltools.dmc_wrappers.base.Wrapper:
         match self.cfg.task.split('_'):
             case 'dmc', domain, task:
                 from dm_control import suite
@@ -185,30 +216,28 @@ class Runner:
                 render_kwargs = {'camera_id': 0, 'width': 84, 'height': 84}
                 env = pixels.Wrapper(
                     env,
-                    pixels_only=False,
+                    pixels_only=True,
                     render_kwargs=render_kwargs,
                     observation_key=types.IMG_KEY
                 )
             case 'ur', _:
                 from ur_env.remote import RemoteEnvClient
-                address = ('')
+                address = ('10.201.2.136', 5555)
                 env = RemoteEnvClient(address)
             case _:
                 raise ValueError(self.cfg.task)
 
         env = dmc_wrappers.ActionRescale(env)
-        env = dmc_wrappers.DiscreteActionWrapper(env, 11)
+        env = dmc_wrappers.DiscreteActionWrapper(env, self.cfg.act_dim_nbins)
         environment.assert_valid_env(env)
         return env
 
-    def make_networks(self,
-                      env: dm_env.Environment | None = None
-                      ) -> CoderNetworks:
-        env = env or self.make_env()
+    def make_networks(self, env_specs=None) -> CoderNetworks:
+        env_specs = env_specs or self.make_env().environment_specs
         networks = CoderNetworks.make_networks(
             self.cfg,
-            env.observation_spec(),
-            env.action_spec()
+            env_specs.observation_spec,
+            env_specs.action_spec,
         )
         return networks
 

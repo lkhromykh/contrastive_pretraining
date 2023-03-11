@@ -51,8 +51,7 @@ class ReplayBuffer:
             gen,
             output_signature=signature
         )
-        ds = ds.prefetch(tf.data.AUTOTUNE)
-        return NumpyIterator(ds)
+        return ds.prefetch(tf.data.AUTOTUNE)
 
     def _yield_batch(self, batch_size: int) -> Generator[types.Trajectory]:
         while True:
@@ -91,32 +90,5 @@ class ReplayBuffer:
         return replay
 
 
-def tree_slice(tree_: 'T', sl: slice) -> 'T':
-    return tree_map(lambda t: t[sl], tree_)
-
-
-# Taken from https://github.com/deepmind/acme
-class NumpyIterator(Iterator[types.Trajectory]):
-    """Iterator over a dataset with elements converted to numpy.
-    Note: This iterator returns read-only numpy arrays.
-    This iterator (compared to `tf.data.Dataset.as_numpy_iterator()`) does not
-    copy the data when comverting `tf.Tensor`s to `np.ndarray`s.
-    TODO(b/178684359): Remove this when it is upstreamed into `tf.data`.
-    """
-
-    __slots__ = ['_iterator']
-
-    def __init__(self, dataset):
-        self._iterator: Iterator[types.Trajectory] = iter(dataset)
-
-    def __iter__(self) -> 'NumpyIterator':
-        return self
-
-    def __next__(self) -> types.Trajectory:
-        return tree_map(
-            lambda t: np.asarray(memoryview(t)),
-            next(self._iterator)
-        )
-
-    def next(self):
-        return self.__next__()
+def tree_slice(tree_: 'T', sl: slice, is_leaf=None) -> 'T':
+    return tree_map(lambda t: t[sl], tree_, is_leaf=is_leaf)

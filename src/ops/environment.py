@@ -37,3 +37,6 @@ def assert_valid_env(env: dm_env.Environment) -> None:
     assert isinstance(act_spec, dm_env.specs.BoundedArray), \
         f'Unbounded action space: {act_spec}'
     assert len(act_spec.shape) == 2, f'Discretized space required{act_spec}'
+
+    assert hasattr(env, 'environment_specs'), \
+        'rltools.dmc_wrappers provided container for dm_env specs is missing.'
