@@ -19,13 +19,12 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> Callable:
     def critic_loss_fn(value, target_value):
         chex.assert_rank([value, target_value], [1, 0])
         target_value = jax.lax.stop_gradient(target_value)
-        return jnp.square(value - target_value[jnp.newaxis]).mean()
+        return jnp.square(value - target_value).mean()
 
     def actor_loss_fn(policy, q_values, actions):
         chex.assert_rank([q_values, actions], [1, 3])
         q_values, actions = jax.lax.stop_gradient((q_values, actions))
-        adv = q_values - q_values.mean()
-        normalized_weights = jax.nn.softmax(adv / cfg.entropy_coef)
+        normalized_weights = jax.nn.softmax(q_values / cfg.entropy_coef)
         return -jnp.sum(normalized_weights * policy.log_prob(actions))
 
     def loss_fn(params: hk.Params,
@@ -51,7 +50,7 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> Callable:
             rngs[3], cfg.ensemble_size, (cfg.num_critics,), replace=False)
         q_fn = jax.vmap(networks.critic, in_axes=(None, None, 0))
         q_t = q_fn(target_params, s_t, a_t)
-        # q_t = jnp.clip(q_t, 0, 1)
+        q_t = jnp.maximum(0, q_t)
         v_t = q_t[critic_idxs].min(1).mean() + cfg.entropy_coef * entropy_t
         target_q_tm1 = r_t + cfg.gamma * disc_t * v_t
 
@@ -91,7 +90,16 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> Callable:
         grads, metrics = jax.tree_util.tree_map(lambda t: jnp.mean(t, 0), out)
 
         state = state.update(grads)
-        metrics.update(drq_grads_norm=optax.global_norm(grads))
+        encoder_gn, _, actor_gn, critic_gn = map(
+            optax.global_norm,
+            networks.split_params(grads)
+        )
+        named_grads = {
+            'encoder_grad_norm': encoder_gn,
+            'actor_grad_norm': actor_gn,
+            'critic_grad_norm': critic_gn
+        }
+        metrics.update(named_grads)
         return state._replace(rng=rngs[-1]), metrics
 
     @chex.assert_max_traces(2)
@@ -100,7 +108,7 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> Callable:
              ) -> tuple[TrainingState, types.Metrics]:
         """Fusing multiple updates."""
         chex.assert_shape(batch['rewards'], (cfg.utd * cfg.drq_batch_size,))
-        print('Tracing DrQ step')
+        print('Tracing DrQ step.')
         rng, subkey = jax.random.split(state.rng)
         state = state._replace(rng=rng)
         idxs = jnp.arange(len(batch['actions']))
@@ -111,7 +119,6 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> Callable:
             metrics.append(met)
         metrics = jax.tree_util.tree_map(lambda *t: jnp.stack(t), *metrics)
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
-        print('Training...')
         return state, metrics
 
     return step

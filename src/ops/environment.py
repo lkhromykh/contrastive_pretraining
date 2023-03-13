@@ -1,9 +1,42 @@
-from collections import defaultdict
+from collections import defaultdict, deque
 
 import numpy as np
 import dm_env.specs
 
 from src import types_ as types
+
+
+class FrameStack:
+    """Task specific frame stack wrapper."""
+
+    def __init__(self, env: dm_env.Environment, frames_number: int = 3) -> None:
+        self.env = env
+        self.frames_number = frames_number
+        self._deq = None
+
+    def reset(self) -> dm_env.TimeStep:
+        ts = self.env.reset()
+        img = ts.observation[types.IMG_KEY]
+        self._deq = deque(self.frames_number * [img], maxlen=self.frames_number)
+        ts.observation[types.IMG_KEY] = np.concatenate(self._deq, -1)
+        return ts
+
+    def step(self, action: types.Action) -> dm_env.TimeStep:
+        ts = self.env.step(action)
+        self._deq.append(ts.observation[types.IMG_KEY])
+        ts.observation[types.IMG_KEY] = np.concatenate(self._deq, -1)
+        return ts
+
+    def observation_spec(self) -> types.ObservationSpecs:
+        spec = self.env.observation_spec().copy()
+        img_spec = spec[types.IMG_KEY]
+        new_shape = \
+            img_spec.shape[:-1] + (self.frames_number * img_spec.shape[-1],)
+        spec[types.IMG_KEY] = img_spec.replace(shape=new_shape)
+        return spec
+
+    def __getattr__(self, item):
+        return getattr(self.env, item)
 
 
 def environment_loop(env: dm_env.Environment,

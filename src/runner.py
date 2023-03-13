@@ -97,10 +97,10 @@ class Runner:
     def run_byol(self):
         """Visual pretraining."""
         status = Runner.Status.infer(self._exp_path())
-        assert status.specs_exists and status.demo_exists, \
-            'Nothing to pretrain from.'
         if status.encoder_exists:
             return
+        assert status.specs_exists and status.demo_exists, \
+            'Nothing to pretrain from.'
 
         print('Pretraining.')
         start = time.time()
@@ -111,7 +111,7 @@ class Runner:
 
         networks = self.make_networks(env_specs)
         params = networks.init(next(self._rngseq))
-        optim = optax.adam(c.byol_learning_rate)
+        optim = optax.adamw(c.byol_learning_rate, weight_decay=c.weight_decay)
         optim = optax.chain(optax.clip_by_global_norm(c.max_grad), optim)
         state = TrainingState.init(next(self._rngseq),
                                    params,
@@ -136,21 +136,25 @@ class Runner:
     def run_drq(self):
         """RL on top of prefilled buffer and trained visual net."""
         status = Runner.Status.infer(self._exp_path())
-        assert status.demo_exists and status.encoder_exists
-        assert not (status.replay_exists or status.agent_exists), \
-            'Already exists.'
 
-        print('Training agent.')
+        print('Interacting.')
         start = time.time()
         c = self.cfg
         env = self.make_env()
         networks = self.make_networks(env.environment_specs)
-        print(hk.experimental.tabulate(networks.init)(jax.random.PRNGKey(0)))
-        with open(self._exp_path(Runner.ENCODER), 'rb') as f:
-            params = pickle.load(f)
+
+        # Load most recent weights.
+        if status.agent_exists:
+            with open(self._exp_path(Runner.AGENT), 'rb') as f:
+                params = pickle.load(f)
+        elif status.encoder_exists:
+            with open(self._exp_path(Runner.ENCODER), 'rb') as f:
+                params = pickle.load(f)
+        else:
+            params = networks.init(next(self._rngseq))
         params = jax.device_put(params)
 
-        optim = optax.adam(c.drq_learning_rate)
+        optim = optax.adamw(c.drq_learning_rate, weight_decay=c.weight_decay)
         optim = optax.chain(optax.clip_by_global_norm(c.max_grad), optim)
         state = TrainingState.init(next(self._rngseq),
                                    params,
@@ -164,11 +168,17 @@ class Runner:
         replay_path = self._exp_path(Runner.REPLAY)
         agent_path = self._exp_path(Runner.AGENT)
 
-        demo = self.make_replay_buffer(self._exp_path(Runner.DEMO))
-        replay = self.make_replay_buffer()
+        # Search for existing replay buffers.
+        if status.replay_exists:
+            replay = self.make_replay_buffer(replay_path)
+        else:
+            replay = self.make_replay_buffer()
+        if status.demo_exists:
+            demo = self.make_replay_buffer(self._exp_path(Runner.DEMO))
+        else:
+            demo = replay
         half_batch = c.drq_batch_size * c.utd // 2
-        demo_ds = demo.as_dataset(half_batch)
-        agent_ds = None
+        agent_ds = demo_ds = None
 
         ts = env.reset()
         interactions = 0
@@ -190,11 +200,13 @@ class Runner:
                 continue
             if agent_ds is None:
                 agent_ds = replay.as_dataset(half_batch)
-            demo_batch = next(demo_ds)
+                demo_ds = demo.as_dataset(half_batch)
+                print('Training.')
             agent_batch = next(agent_ds)
+            demo_batch = next(demo_ds)
             batch = jax.tree_util.tree_map(
                 lambda t1, t2: np.concatenate([t1, t2]),
-                demo_batch, agent_batch
+                agent_batch, demo_batch
             )
             batch = jax.device_put(batch)
             state, metrics = step(state, batch)
@@ -235,6 +247,8 @@ class Runner:
                     render_kwargs=render_kwargs,
                     observation_key=types.IMG_KEY
                 )
+                env = dmc_wrappers.ActionRepeat(env, 2)
+                env = environment.FrameStack(env, 3)
             case 'ur', _:
                 from ur_env.remote import RemoteEnvClient
                 address = ('10.201.2.136', 5555)
@@ -247,7 +261,10 @@ class Runner:
         environment.assert_valid_env(env)
         return env
 
-    def make_networks(self, env_specs=None) -> CoderNetworks:
+    def make_networks(
+            self,
+            env_specs: dmc_wrappers.base.EnvironmentSpecs | None = None
+    ) -> CoderNetworks:
         env_specs = env_specs or self.make_env().environment_specs
         networks = CoderNetworks.make_networks(
             self.cfg,

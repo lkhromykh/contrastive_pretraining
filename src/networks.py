@@ -67,7 +67,12 @@ class Encoder(hk.Module):
         x = img / 255
         iter_ = zip(self.depths, self.kernels, self.strides)
         for d, k, s in iter_:
-            x = hk.Conv2D(d, k, s, padding='valid')(x)
+            conv = hk.Conv2D(
+                d, k, s,
+                w_init=hk.initializers.Orthogonal(),
+                padding='valid'
+            )
+            x = conv(x)
             x = _get_norm(self.norm)(x)
             x = _get_act(self.act)(x)
 
@@ -97,7 +102,7 @@ class Actor(hk.Module):
         state = MLP(self.layers, self.act, self.norm)(state)
         act_sh = self.action_spec.shape
         fc = hk.Linear(act_sh[0] * act_sh[1],
-                       w_init=hk.initializers.TruncatedNormal(1e-2)
+                       w_init=hk.initializers.TruncatedNormal(1e-1)
                        )
         logits = fc(state).reshape(act_sh)
         dist = tfd.OneHotCategorical(logits)
@@ -127,7 +132,7 @@ class Critic(hk.Module):
 
         x = jnp.concatenate([state, action.flatten()])
         x = MLP(self.layers, self.act, self.norm)(x)
-        fc = hk.Linear(1, w_init=hk.initializers.TruncatedNormal(1e-2))
+        fc = hk.Linear(1, w_init=hk.initializers.TruncatedNormal(1e-1))
         return fc(x)
 
 
