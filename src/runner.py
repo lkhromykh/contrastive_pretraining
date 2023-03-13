@@ -60,8 +60,10 @@ class Runner:
         """Prepare expert's demonstrations."""
         # Instead of collection we parse existing one.
         status = Runner.Status.infer(self._exp_path())
-        assert not status.demo_exists, 'Already exists.'
+        if status.demo_exists:
+            return
 
+        print('Preparing replay.')
         env_specs = pickle.load(open(self._exp_path(Runner.SPECS), 'rb'))
         act_sp = env_specs.action_spec
         replay = self.make_replay_buffer()
@@ -74,7 +76,7 @@ class Runner:
             return disc
 
         idx = 0
-        while os.path.exists(path := self._exp_path(f'traj{idx}')):
+        while os.path.exists(path := self._exp_path(f'raw_demos/traj{idx}')):
             trajectory: types.Trajectory = pickle.load(open(path, 'rb'))
             actions = trajectory['actions']
             trajectory['actions'] = list(map(action_fn, actions))
@@ -97,13 +99,15 @@ class Runner:
         status = Runner.Status.infer(self._exp_path())
         assert status.specs_exists and status.demo_exists, \
             'Nothing to pretrain from.'
-        assert not status.encoder_exists, 'Already exists.'
+        if status.encoder_exists:
+            return
 
+        print('Pretraining.')
         start = time.time()
         c = self.cfg
         replay = self.make_replay_buffer(self._exp_path(Runner.DEMO))
         env_specs = pickle.load(open(self._exp_path(Runner.SPECS), 'rb'))
-        ds = replay.as_dataset(c.byol_batch_size).as_numpy_iterator()
+        ds = replay.as_dataset(c.byol_batch_size)
 
         networks = self.make_networks(env_specs)
         params = networks.init(next(self._rngseq))
@@ -127,6 +131,7 @@ class Runner:
         with open(self._exp_path(Runner.ENCODER), 'wb') as f:
             params = jax.device_get(state.params)
             pickle.dump(params, f)
+        jax.clear_backends()
 
     def run_drq(self):
         """RL on top of prefilled buffer and trained visual net."""
@@ -135,10 +140,12 @@ class Runner:
         assert not (status.replay_exists or status.agent_exists), \
             'Already exists.'
 
+        print('Training agent.')
         start = time.time()
         c = self.cfg
         env = self.make_env()
         networks = self.make_networks(env.environment_specs)
+        print(hk.experimental.tabulate(networks.init)(jax.random.PRNGKey(0)))
         with open(self._exp_path(Runner.ENCODER), 'rb') as f:
             params = pickle.load(f)
         params = jax.device_put(params)
@@ -149,6 +156,7 @@ class Runner:
                                    params,
                                    optim,
                                    c.drq_targets_update)
+
         act = jax.jit(networks.act)
         step = jax.jit(drq(c, networks))
 
@@ -156,12 +164,11 @@ class Runner:
         replay_path = self._exp_path(Runner.REPLAY)
         agent_path = self._exp_path(Runner.AGENT)
 
-        replay = self.make_replay_buffer(replay_path)
         demo = self.make_replay_buffer(self._exp_path(Runner.DEMO))
+        replay = self.make_replay_buffer()
         half_batch = c.drq_batch_size * c.utd // 2
         demo_ds = demo.as_dataset(half_batch)
-        agent_ds = replay.as_dataset(half_batch)
-        ds = demo_ds.concatenate(agent_ds).as_numpy_iterator()
+        agent_ds = None
 
         ts = env.reset()
         interactions = 0
@@ -181,7 +188,15 @@ class Runner:
             })
             if len(replay) < half_batch:
                 continue
-            batch = jax.device_put(next(ds))
+            if agent_ds is None:
+                agent_ds = replay.as_dataset(half_batch)
+            demo_batch = next(demo_ds)
+            agent_batch = next(agent_ds)
+            batch = jax.tree_util.tree_map(
+                lambda t1, t2: np.concatenate([t1, t2]),
+                demo_batch, agent_batch
+            )
+            batch = jax.device_put(batch)
             state, metrics = step(state, batch)
             metrics.update(step=state.step.item(), time=time.time() - start)
             logger.write(metrics)

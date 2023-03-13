@@ -39,6 +39,7 @@ def byol(cfg: CoderConfig, networks: CoderNetworks) -> Callable:
     def step(state: TrainingState,
              batch: types.Trajectory
              ) -> tuple[TrainingState, types.Metrics]:
+        print('Tracing BYOL step')
         params = state.params
         target_params = state.target_params
         imgs = jnp.concatenate([

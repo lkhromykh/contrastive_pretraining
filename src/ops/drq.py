@@ -100,6 +100,7 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> Callable:
              ) -> tuple[TrainingState, types.Metrics]:
         """Fusing multiple updates."""
         chex.assert_shape(batch['rewards'], (cfg.utd * cfg.drq_batch_size,))
+        print('Tracing DrQ step')
         rng, subkey = jax.random.split(state.rng)
         state = state._replace(rng=rng)
         idxs = jnp.arange(len(batch['actions']))
@@ -110,6 +111,7 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> Callable:
             metrics.append(met)
         metrics = jax.tree_util.tree_map(lambda *t: jnp.stack(t), *metrics)
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
+        print('Training...')
         return state, metrics
 
     return step

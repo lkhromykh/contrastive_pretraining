@@ -51,7 +51,8 @@ class ReplayBuffer:
             gen,
             output_signature=signature
         )
-        return ds.prefetch(tf.data.AUTOTUNE)
+        ds = ds.prefetch(tf.data.AUTOTUNE)
+        return ds.as_numpy_iterator()
 
     def _yield_batch(self, batch_size: int) -> Generator[types.Trajectory]:
         while True:

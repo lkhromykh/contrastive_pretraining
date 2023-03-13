@@ -8,7 +8,6 @@ def main(config):
     runner = Runner(config)
     runner.run_replay_collection()
     runner.run_byol()
-    jax.clear_backends()
     runner.run_drq()
 
 

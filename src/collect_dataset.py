@@ -32,12 +32,13 @@ def environment_loop(env_, policy):
 
 idx = 0
 while True:
+    print('Input command [add/break]')
     com = input()
     if com == 'add':
         tr = environment_loop(env, lambda _: gamepad.read_input())
         print('Save this [y/N]?')
         if input() == 'y':
-            path = f'traj{idx}'
+            path = f'raw_demos/traj{idx}'
             assert not os.path.exists(path)
             with open(path, 'wb') as f:
                 pickle.dump(tr, f)
@@ -45,7 +46,7 @@ while True:
     if com == 'break':
         break
 
-env = dmc_wrappers.DiscreteActionWrapper(env, 11)
+env = dmc_wrappers.DiscreteActionWrapper(env, 3)
 with open('specs.pkl', 'wb') as f:
     pickle.dump(env.environment_specs, f)
 env.close()
