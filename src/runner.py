@@ -66,6 +66,7 @@ class Runner:
         print('Preparing replay.')
         env_specs = pickle.load(open(self._exp_path(Runner.SPECS), 'rb'))
         act_sp = env_specs.action_spec
+        assert self.cfg.act_dim_nbins == 3
         replay = self.make_replay_buffer(env_specs=env_specs)
 
         def action_fn(action):
@@ -177,7 +178,6 @@ class Runner:
             demo = self.make_replay_buffer(load=self._exp_path(Runner.DEMO))
         else:
             demo = replay
-        half_batch = c.drq_batch_size * c.utd // 2
         agent_ds = demo_ds = None
 
         ts = env.reset()
@@ -199,6 +199,7 @@ class Runner:
             if interactions < c.pretrain_steps:
                 continue
             if agent_ds is None:
+                half_batch = c.drq_batch_size * c.utd // 2
                 agent_ds = replay.as_dataset(half_batch)
                 demo_ds = demo.as_dataset(half_batch)
                 print('Training.')
@@ -211,7 +212,7 @@ class Runner:
             batch = jax.device_put(batch)
             state, metrics = step(state, batch)
             if interactions % c.log_every == 0:
-                metrics.update(step=state.step.item(), time=time.time() - start)
+                metrics.update(step=state.step, time=time.time() - start)
                 logger.write(metrics)
 
             if interactions % c.eval_every == 0:

@@ -20,38 +20,38 @@ class CoderConfig(Config):
     # DrQ
     # https://github.com/facebookresearch/drqv2/blob/main/cfgs/config.yaml
     gamma: float = .99
-    utd: int = 20
+    utd: int = 10
     entropy_coef: float = 1e-1
     num_actions: int = 20
     detach_encoder: bool = False
     drq_batch_size: int = 256
     drq_learning_rate: float = 3e-4
     drq_targets_update: float = 5e-3
-    log_every: int = 200
-    eval_every: int = 20_000
-    num_evaluations: int = 5
-    pretrain_steps: int = 3000
+    log_every: int = 5
+    eval_every: int = 100
+    num_evaluations: int = 1
+    pretrain_steps: int = 500
 
     # Architecture
-    activation: str = 'elu'
-    normalization: str = 'layer'
+    activation: str = 'relu'
+    normalization: str = 'rms'
 
     cnn_emb_dim: int = 64
     cnn_depths: Layers = (32, 32, 32, 32)
     cnn_kernels: Layers = (3, 3, 3, 3)
-    cnn_strides: Layers = (2, 1, 1, 1)
+    cnn_strides: Layers = (2, 2, 1, 1)
 
-    act_dim_nbins: int = 11
+    act_dim_nbins: int = 3
     actor_layers: Layers = (256, 256)
     critic_layers: Layers = (256, 256)
-    ensemble_size: int = 10
+    ensemble_size: int = 5
     num_critics: int = 2
 
     # Train common
-    buffer_capacity: int = 50_000
+    buffer_capacity: int = 30_000
     max_grad: float = 50.
     weight_decay: float = 1e-5
 
-    logdir: str = 'logdir/reacher'
-    task: str = 'dmc_reacher_easy'
+    logdir: str = 'logdir/ur_pick'
+    task: str = 'ur_pick'
     seed: int = 0

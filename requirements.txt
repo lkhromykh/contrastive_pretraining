@@ -1,6 +1,6 @@
 numpy
 jax
-haiku
+dm-haiku
 dm-pix
 optax
 chex
