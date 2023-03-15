@@ -51,7 +51,7 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> Callable:
         q_fn = jax.vmap(networks.critic, in_axes=(None, None, 0))
         q_t = q_fn(target_params, s_t, a_t)
         q_t = jnp.maximum(0, q_t)
-        v_t = q_t[critic_idxs].min(1).mean() + cfg.entropy_coef * entropy_t
+        v_t = q_t[critic_idxs].mean(0).min() + cfg.entropy_coef * entropy_t
         target_q_tm1 = r_t + cfg.gamma * disc_t * v_t
 
         q_tm1 = networks.critic(params, s_tm1, a_tm1)
@@ -102,7 +102,7 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> Callable:
         metrics.update(named_grads)
         return state._replace(rng=rngs[-1]), metrics
 
-    @chex.assert_max_traces(2)
+    @chex.assert_max_traces(1)
     def step(state: TrainingState,
              batch: types.Trajectory
              ) -> tuple[TrainingState, types.Metrics]:

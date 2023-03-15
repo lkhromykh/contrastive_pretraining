@@ -37,7 +37,7 @@ def byol(cfg: CoderConfig, networks: CoderNetworks) -> Callable:
         loss_prime, _ = byol_fn(view_prime, view)
         return loss + loss_prime, projection
 
-    @chex.assert_max_traces(2)
+    @chex.assert_max_traces(1)
     def step(state: TrainingState,
              batch: types.Trajectory
              ) -> tuple[TrainingState, types.Metrics]:
@@ -48,19 +48,17 @@ def byol(cfg: CoderConfig, networks: CoderNetworks) -> Callable:
             batch['observations'][types.IMG_KEY],
             batch['next_observations'][types.IMG_KEY]
         ])
-
-        rngs = jax.random.split(state.rng, 2*cfg.byol_batch_size + 1)
+        rngs = jax.random.split(state.rng, cfg.byol_batch_size + 1)
 
         in_axes = 2 * (None,) + 2 * (0,)
         grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
         grad_fn = jax.vmap(grad_fn, in_axes=in_axes)
         (loss, proj), grads = grad_fn(params, target_params, rngs[:-1], imgs)
-        chex.assert_shape(proj, (2*cfg.byol_batch_size, cfg.cnn_emb_dim))
+        chex.assert_shape(proj, (cfg.byol_batch_size, cfg.cnn_emb_dim))
         loss, grads = jax.tree_util.tree_map(
             lambda t: jnp.mean(t, 0),
             (loss, grads)
         )
-
         state = state.update(grads)
         metrics = dict(loss=loss,
                        grads_norm=optax.global_norm(grads),
@@ -69,5 +67,3 @@ def byol(cfg: CoderConfig, networks: CoderNetworks) -> Callable:
         return state._replace(rng=rngs[-1]), metrics
 
     return step
-
-

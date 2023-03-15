@@ -66,7 +66,7 @@ class Runner:
         print('Preparing replay.')
         env_specs = pickle.load(open(self._exp_path(Runner.SPECS), 'rb'))
         act_sp = env_specs.action_spec
-        replay = self.make_replay_buffer()
+        replay = self.make_replay_buffer(env_specs=env_specs)
 
         def action_fn(action):
             """Discretize loaded actions."""
@@ -105,9 +105,9 @@ class Runner:
         print('Pretraining.')
         start = time.time()
         c = self.cfg
-        replay = self.make_replay_buffer(self._exp_path(Runner.DEMO))
+        replay = self.make_replay_buffer(load=self._exp_path(Runner.DEMO))
         env_specs = pickle.load(open(self._exp_path(Runner.SPECS), 'rb'))
-        ds = replay.as_dataset(c.byol_batch_size)
+        ds = replay.as_dataset(c.byol_batch_size // 2)  # obs + next_obs cause doubling.
 
         networks = self.make_networks(env_specs)
         params = networks.init(next(self._rngseq))
@@ -170,11 +170,11 @@ class Runner:
 
         # Search for existing replay buffers.
         if status.replay_exists:
-            replay = self.make_replay_buffer(replay_path)
+            replay = self.make_replay_buffer(load=replay_path)
         else:
-            replay = self.make_replay_buffer()
+            replay = self.make_replay_buffer(env_specs=env.environment_specs)
         if status.demo_exists:
-            demo = self.make_replay_buffer(self._exp_path(Runner.DEMO))
+            demo = self.make_replay_buffer(load=self._exp_path(Runner.DEMO))
         else:
             demo = replay
         half_batch = c.drq_batch_size * c.utd // 2
@@ -196,7 +196,7 @@ class Runner:
                 'discounts': ts.discount,
                 'next_observations': ts.observation
             })
-            if len(replay) < half_batch:
+            if interactions < c.pretrain_steps:
                 continue
             if agent_ds is None:
                 agent_ds = replay.as_dataset(half_batch)
@@ -210,28 +210,46 @@ class Runner:
             )
             batch = jax.device_put(batch)
             state, metrics = step(state, batch)
-            metrics.update(step=state.step.item(), time=time.time() - start)
-            logger.write(metrics)
+            if interactions % c.log_every == 0:
+                metrics.update(step=state.step.item(), time=time.time() - start)
+                logger.write(metrics)
 
-            if interactions % c.drq_eval_every == 0:
+            if interactions % c.eval_every == 0:
                 def policy(obs_):
                     return act(state.params, next(self._rngseq), obs_, False)
-                trajectory = environment.environment_loop(env, policy)
+                returns = []
+                for i in range(c.num_evaluations):
+                    trajectory = environment.environment_loop(env, policy)
+                    returns.append(sum(trajectory['rewards']))
                 ts = env.reset()
                 logger.write({
                     'step': interactions,
-                    'eval_return': sum(trajectory['rewards'])
+                    'eval_return_mean': np.mean(returns),
+                    'eval_return_std': np.std(returns)
                 })
 
                 replay.save(replay_path)
                 with open(agent_path, 'wb') as f:
                     pickle.dump(jax.device_get(state.params), f)
 
-    def make_replay_buffer(self, load: str | None = None) -> ReplayBuffer:
+    def make_replay_buffer(
+            self,
+            *,
+            load: str | None = None,
+            env_specs: rltools.dmc_wrappers.base.EnvironmentSpecs | None = None,
+    ) -> ReplayBuffer:
         if load is not None:
             return ReplayBuffer.load(load)
+        env_specs = env_specs or self.make_env().environment_specs
         np_rng = next(self._rngseq)[0].item()
-        replay = ReplayBuffer(np_rng, self.cfg.buffer_capacity)
+        signature = {
+            'observations': env_specs.observation_spec,
+            'actions': env_specs.action_spec,
+            'rewards': env_specs.reward_spec,
+            'discounts': env_specs.discount_spec,
+            'next_observations': env_specs.observation_spec
+        }
+        replay = ReplayBuffer(np_rng, self.cfg.buffer_capacity, signature)
         return replay
 
     def make_env(self) -> rltools.dmc_wrappers.base.Wrapper:
@@ -240,7 +258,7 @@ class Runner:
                 from dm_control import suite
                 from dm_control.suite.wrappers import pixels
                 env = suite.load(domain, task)
-                render_kwargs = {'camera_id': 0, 'width': 84, 'height': 84}
+                render_kwargs = {'camera_id': 0, 'width': 100, 'height': 100}
                 env = pixels.Wrapper(
                     env,
                     pixels_only=True,

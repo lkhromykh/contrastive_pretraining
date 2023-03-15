@@ -1,4 +1,4 @@
-from collections import defaultdict, deque
+from collections import defaultdict, deque, OrderedDict
 
 import numpy as np
 import dm_env.specs
@@ -18,14 +18,12 @@ class FrameStack:
         ts = self.env.reset()
         img = ts.observation[types.IMG_KEY]
         self._deq = deque(self.frames_number * [img], maxlen=self.frames_number)
-        ts.observation[types.IMG_KEY] = np.concatenate(self._deq, -1)
-        return ts
+        return ts._replace(observation=self._get_obs())
 
     def step(self, action: types.Action) -> dm_env.TimeStep:
         ts = self.env.step(action)
         self._deq.append(ts.observation[types.IMG_KEY])
-        ts.observation[types.IMG_KEY] = np.concatenate(self._deq, -1)
-        return ts
+        return ts._replace(observation=self._get_obs())
 
     def observation_spec(self) -> types.ObservationSpecs:
         spec = self.env.observation_spec().copy()
@@ -34,6 +32,9 @@ class FrameStack:
             img_spec.shape[:-1] + (self.frames_number * img_spec.shape[-1],)
         spec[types.IMG_KEY] = img_spec.replace(shape=new_shape)
         return spec
+
+    def _get_obs(self) -> types.Observation:
+        return OrderedDict({types.IMG_KEY: np.concatenate(self._deq, -1)})
 
     def __getattr__(self, item):
         return getattr(self.env, item)
@@ -72,4 +73,4 @@ def assert_valid_env(env: dm_env.Environment) -> None:
     assert len(act_spec.shape) == 2, f'Discretized space required{act_spec}'
 
     assert hasattr(env, 'environment_specs'), \
-        'rltools.dmc_wrappers provided container for dm_env specs is missing.'
+        'rltools.dmc_wrappers like container for the specs is missing.'

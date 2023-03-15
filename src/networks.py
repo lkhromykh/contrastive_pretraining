@@ -102,8 +102,7 @@ class Actor(hk.Module):
         state = MLP(self.layers, self.act, self.norm)(state)
         act_sh = self.action_spec.shape
         fc = hk.Linear(act_sh[0] * act_sh[1],
-                       w_init=hk.initializers.TruncatedNormal(1e-1)
-                       )
+                       w_init=hk.initializers.TruncatedNormal(1e-1))
         logits = fc(state).reshape(act_sh)
         dist = tfd.OneHotCategorical(logits)
         return tfd.Independent(dist, 1)
@@ -225,7 +224,7 @@ class CoderNetworks(NamedTuple):
                     features.append(feat)
                 return jnp.concatenate(features, -1)
 
-            def act(rng: types.RNG,
+            def act(seed: types.RNG,
                     obs: types.Observation,
                     training: bool
                     ) -> Array:
@@ -233,7 +232,7 @@ class CoderNetworks(NamedTuple):
                 dist = actor(state)
                 action = jax.lax.select(
                     training,
-                    dist.sample(seed=rng),
+                    dist.sample(seed=seed),
                     dist.mode()
                 )
                 return action
