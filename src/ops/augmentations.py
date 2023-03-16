@@ -13,7 +13,7 @@ def random_shift(rng: chex.PRNGKey,
     chex.assert_rank(img, 3)  # HWC
 
     shape = img.shape
-    pad = (crop_size // 2, crop_size - crop_size // 2)
+    pad = (crop_size, crop_size)
     pad_with = (pad, pad, (0, 0))
     img = jnp.pad(img, pad_with, mode='edge')
     return dm_pix.random_crop(rng, img, shape)

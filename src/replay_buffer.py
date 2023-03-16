@@ -30,6 +30,7 @@ class ReplayBuffer:
 
     def add(self, transition: Nested) -> None:
         leaves, struct = tree_util.tree_flatten(transition)
+        assert struct == self._treedef, 'Structures dont match.'
         for i in range(len(leaves)):
             self._memory[i][self._idx] = leaves[i]
         self._idx += 1

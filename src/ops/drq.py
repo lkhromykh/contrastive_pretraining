@@ -24,8 +24,7 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> Callable:
     def actor_loss_fn(policy, q_values, actions):
         chex.assert_rank([q_values, actions], [1, 3])
         q_values, actions = jax.lax.stop_gradient((q_values, actions))
-        adv = q_values - q_values.mean()
-        normalized_weights = jax.nn.softmax(adv / cfg.entropy_coef)
+        normalized_weights = jax.nn.softmax(q_values / cfg.entropy_coef)
         return -jnp.sum(normalized_weights * policy.log_prob(actions))
 
     def loss_fn(params: hk.Params,

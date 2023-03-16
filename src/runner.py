@@ -81,13 +81,12 @@ class Runner:
             trajectory: types.Trajectory = pickle.load(open(path, 'rb'))
             actions = trajectory['actions']
             trajectory['actions'] = list(map(action_fn, actions))
-
             for i in range(len(actions)):
                 replay.add(
-                    tree_slice(
+                    dict(tree_slice(
                         trajectory, i,
                         is_leaf=lambda t: isinstance(t, list)
-                    )
+                    ))
                 )
             idx += 1
 
@@ -196,7 +195,7 @@ class Runner:
                 'discounts': ts.discount,
                 'next_observations': ts.observation
             })
-            if interactions < c.pretrain_steps:
+            if len(replay) < c.pretrain_steps:
                 continue
             if agent_ds is None:
                 half_batch = c.drq_batch_size * c.utd // 2
