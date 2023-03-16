@@ -20,7 +20,7 @@ class CoderConfig(Config):
     # DrQ
     # https://github.com/facebookresearch/drqv2/blob/main/cfgs/config.yaml
     gamma: float = .99
-    utd: int = 10
+    utd: int = 5
     entropy_coef: float = 1e-1
     num_actions: int = 20
     detach_encoder: bool = False

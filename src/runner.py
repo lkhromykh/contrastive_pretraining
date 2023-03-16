@@ -259,7 +259,7 @@ class Runner:
                 from dm_control import suite
                 from dm_control.suite.wrappers import pixels
                 env = suite.load(domain, task)
-                render_kwargs = {'camera_id': 0, 'width': 100, 'height': 100}
+                render_kwargs = {'camera_id': 0, 'width': 64, 'height': 64}
                 env = pixels.Wrapper(
                     env,
                     pixels_only=True,
