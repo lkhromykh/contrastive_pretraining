@@ -180,7 +180,7 @@ class Runner:
         agent_ds = demo_ds = None
 
         ts = env.reset()
-        interactions = 0
+        interactions = len(replay)
         while True:
             if ts.last():
                 ts = env.reset()
@@ -198,6 +198,7 @@ class Runner:
             if len(replay) < c.pretrain_steps:
                 continue
             if agent_ds is None:
+                replay.save(replay_path)
                 half_batch = c.drq_batch_size * c.utd // 2
                 agent_ds = replay.as_dataset(half_batch)
                 demo_ds = demo.as_dataset(half_batch)
@@ -271,12 +272,13 @@ class Runner:
                 from ur_env.remote import RemoteEnvClient
                 address = ('10.201.2.136', 5555)
                 env = RemoteEnvClient(address)
+                env = environment.FrameStack(env, 3)
             case _:
                 raise ValueError(self.cfg.task)
 
-        env = dmc_wrappers.ActionRescale(env)
+        #env = dmc_wrappers.ActionRescale(env)
         env = dmc_wrappers.DiscreteActionWrapper(env, self.cfg.act_dim_nbins)
-        environment.assert_valid_env(env)
+        #environment.assert_valid_env(env)
         return env
 
     def make_networks(

@@ -4,7 +4,6 @@ dm-haiku
 dm-pix
 optax
 chex
-tensorflow
-tensorflow_probability
+tfp-nightly[jax]
 git+https://github.com/lkhromykh/rltools.git@dev
 git+https://github.com/RQC-Robotics/ur5-env.git@dev

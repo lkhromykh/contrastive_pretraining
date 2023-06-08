@@ -1,6 +1,6 @@
 import dataclasses
 
-from rltools.config import Config
+from rltools.config import Config as _Config
 
 Layers = tuple[int]
 
@@ -8,20 +8,20 @@ Layers = tuple[int]
 
 
 @dataclasses.dataclass
-class CoderConfig(Config):
+class Config(_Config):
     # BYOL
     # https://github.com/deepmind/deepmind-research/blob/master/byol/configs/byol.py
     shift: int = 4
     byol_batch_size: int = 512
     byol_learning_rate: float = 1e-4
     byol_targets_update: float = 5e-3
-    byol_steps: int = 100
+    byol_steps: int = 200
 
     # DrQ
     # https://github.com/facebookresearch/drqv2/blob/main/cfgs/config.yaml
-    gamma: float = .99
-    utd: int = 10
-    entropy_coef: float = 1e-3
+    gamma: float = .98
+    utd: int = 1
+    entropy_coef: float = 1e-4
     num_actions: int = 20
     detach_encoder: bool = False
     drq_batch_size: int = 256
@@ -44,14 +44,14 @@ class CoderConfig(Config):
     act_dim_nbins: int = 3
     actor_layers: Layers = (256, 256)
     critic_layers: Layers = (256, 256)
-    ensemble_size: int = 10
+    ensemble_size: int = 2
     num_critics: int = 2
 
     # Train common
     buffer_capacity: int = 10_000
     max_grad: float = 50.
-    weight_decay: float = 1e-5
+    weight_decay: float = 1e-6
 
-    logdir: str = 'logdir/ur_pick_dense'
+    logdir: str = 'logdir/ur_pick_framestack'
     task: str = 'ur_pick'
     seed: int = 0

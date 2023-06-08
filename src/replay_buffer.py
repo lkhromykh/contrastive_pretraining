@@ -2,8 +2,6 @@ from typing import Any, Generator
 
 import numpy as np
 from jax import tree_util
-import tensorflow as tf
-tf.config.set_visible_devices([], 'GPU')
 
 Nested = Any
 
@@ -37,12 +35,16 @@ class ReplayBuffer:
         self._len = max(self._len, self._idx)
         self._idx %= self.capacity
 
-    def as_dataset(self, batch_size: int) -> tf.data.Dataset:
+    def as_dataset(self, batch_size: int) -> 'tf.data.Dataset':
+        """This require tensorflow which is not listed in requirements."""
+        import tensorflow as tf
+        tf.config.set_visible_devices([], 'GPU')
+
         def to_tf_spec(sp):
             return tf.TensorSpec((batch_size,) + sp.shape, sp.dtype)
 
         ds = tf.data.Dataset.from_generator(
-            lambda: self._yield(batch_size),
+            lambda: self.as_generator(batch_size),
             output_signature=tree_util.tree_map(to_tf_spec, self.signature)
         )
         ds = ds.prefetch(tf.data.AUTOTUNE)

@@ -13,10 +13,10 @@ class TrainingState(NamedTuple):
     target_params: hk.Params
     opt_state: optax.OptState
     rng: jax.random.PRNGKey
-    target_update_var: float
-    step: int
+    step: jnp.ndarray
 
     tx: optax.TransformUpdateFn
+    target_update_var: float
 
     def update(self, grads: hk.Params) -> 'TrainingState':
         params = self.params
@@ -34,7 +34,7 @@ class TrainingState(NamedTuple):
             params=params,
             target_params=target_params,
             opt_state=opt_state,
-            step=step + 1
+            step=step+1
         )
 
     @classmethod
@@ -49,21 +49,20 @@ class TrainingState(NamedTuple):
             target_params=params,
             opt_state=optim.init(params),
             rng=rng,
+            step=jnp.int32(0),
+            target_update_var=target_update_var,
             tx=optim.update,
-            target_update_var=jnp.asarray(target_update_var),
-            step=jnp.int32(0)
         )
 
     def tree_flatten(self):
-        children = (
-            self.params,
-            self.target_params,
-            self.opt_state,
-            self.rng,
-            self.target_update_var,
-            self.step
-        )
-        return children, (self.tx,)
+        children = (self.params,
+                    self.target_params,
+                    self.opt_state,
+                    self.rng,
+                    self.step
+                    )
+        aux = (self.tx, self.target_update_var)
+        return children, aux
 
     @classmethod
     def tree_unflatten(cls, aux, children):
