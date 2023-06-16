@@ -1,19 +1,16 @@
 from collections.abc import Callable
 from typing import NamedTuple
 
-import dm_env
-from dm_env import specs
-
+import numpy as np
 import jax
 import jax.numpy as jnp
 import chex
 import haiku as hk
-import tensorflow_probability.substrates.jax.distributions as tfd
 
 from src import types_ as types
 from src.config import CoderConfig
 
-Array = jnp.ndarray
+Array = chex.Array
 
 
 class MLP(hk.Module):
@@ -26,18 +23,18 @@ class MLP(hk.Module):
                  name: str | None = None,
                  ) -> None:
         super().__init__(name)
-
-        mlp = []
-        for idx, layer in enumerate(layers):
-            mlp.append(hk.Linear(layer))
-            if idx != len(layers) - 1 or activate_final:
-                mlp.append(_get_norm(norm))
-                mlp.append(_get_act(act))
-
-        self._mlp = hk.Sequential(mlp)
+        self.layers = layers
+        self.act = act
+        self.norm = norm
+        self.activate_final = activate_final
 
     def __call__(self, x: Array) -> Array:
-        return self._mlp(x)
+        for idx, layer in enumerate(self.layers):
+            x = hk.Linear(layer)(x)
+            if idx != len(self.layers) - 1 or self.activate_final:
+                x = _get_norm(self.norm)(x)
+                x = _get_act(self.act)(x)
+        return x
 
 
 class Encoder(hk.Module):
@@ -52,7 +49,6 @@ class Encoder(hk.Module):
                  name: str | None = None
                  ) -> None:
         super().__init__(name)
-
         self.emb_dim = emb_dim
         self.depths = depths
         self.kernels = kernels
@@ -62,77 +58,43 @@ class Encoder(hk.Module):
         
     def __call__(self, img: Array) -> Array:
         chex.assert_type(img, jnp.uint8)
-        chex.assert_rank(img, 3)  # HWC
 
-        x = img / 255
-        iter_ = zip(self.depths, self.kernels, self.strides)
-        for d, k, s in iter_:
-            conv = hk.Conv2D(
-                d, k, s,
-                w_init=hk.initializers.Orthogonal(),
-                padding='valid'
-            )
+        prefix = img.shape[:-3]
+        reshape = (np.prod(prefix, dtype=int),) + img.shape[-3:]
+        x = jnp.reshape(img / 255., reshape)
+
+        cnn_arch = zip(self.depths, self.kernels, self.strides)
+        for depth, kernel, stride in cnn_arch:
+            conv = hk.Conv2D(depth, kernel, stride,
+                             w_init=hk.initializers.Orthogonal(),
+                             padding='valid')
             x = conv(x)
             x = _get_norm(self.norm)(x)
             x = _get_act(self.act)(x)
 
         emb = hk.Linear(self.emb_dim, name='projector')
-        return emb(x.flatten())
+        return emb(x).reshape(prefix + (-1,))
 
 
-class Actor(hk.Module):
+class DQN(hk.Module):
 
     def __init__(self,
-                 action_spec: dm_env.specs.BoundedArray,
+                 act_dim: int,
                  layers: types.Layers,
                  act: str,
                  norm: str,
                  name: str | None = None
                  ) -> None:
         super().__init__(name)
-        self.action_spec = action_spec
+        self.act_dim = act_dim
         self.layers = layers
         self.act = act
         self.norm = norm
 
-    def __call__(self, state: Array) -> tfd.Distribution:
-        chex.assert_rank(state, 1)
+    def __call__(self, state: Array) -> Array:
         chex.assert_type(state, float)
-
-        state = MLP(self.layers, self.act, self.norm)(state)
-        act_sh = self.action_spec.shape
-        fc = hk.Linear(act_sh[0] * act_sh[1],
-                       w_init=hk.initializers.TruncatedNormal(1e-1))
-        logits = fc(state).reshape(act_sh)
-        dist = tfd.OneHotCategorical(logits)
-        return tfd.Independent(dist, 1)
-
-
-class Critic(hk.Module):
-
-    def __init__(self,
-                 layers: types.Layers,
-                 act: str,
-                 norm: str,
-                 name: str | None = None
-                 ) -> None:
-        super().__init__(name)
-
-        self.layers = layers
-        self.act = act
-        self.norm = norm
-
-    def __call__(self,
-                 state: Array,
-                 action: Array,
-                 ) -> Array:
-        chex.assert_rank([state, action], [1, 2])
-        chex.assert_type([state, action], [float, int])
-
-        x = jnp.concatenate([state, action.flatten()])
-        x = MLP(self.layers, self.act, self.norm)(x)
-        fc = hk.Linear(1, w_init=hk.initializers.TruncatedNormal(1e-1))
-        return fc(x)
+        x = MLP(self.layers, self.act, self.norm)(state)
+        return hk.Linear(self.act_dim)(x)
 
 
 class CriticsEnsemble(hk.Module):
@@ -145,35 +107,30 @@ class CriticsEnsemble(hk.Module):
                  ) -> None:
         super().__init__(name)
         self.ensemble_size = ensemble_size
-        self._factory = lambda n: Critic(*args, name=n, **kwargs)
+        self._factory = lambda n: DQN(*args, name=n, **kwargs)
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args, **kwargs) -> Array:
         values = []
         for i in range(self.ensemble_size):
-            critic = self._factory(f'critic_{i}')
+            critic = self._factory('critic_%d' % i)
             values.append(critic(*args, **kwargs))
-        return jnp.concatenate(values, -1)
+        return jnp.stack(values, -1)
 
 
 class CoderNetworks(NamedTuple):
-
     init: Callable
-
     encoder: Callable
     predictor: Callable
-    actor: Callable
     critic: Callable
-
     act: Callable
-    make_state: Callable
     split_params: Callable
 
     @classmethod
     def make_networks(
             cls,
             cfg: CoderConfig,
-            observation_spec: types.ObservationSpecs,
-            action_spec: dm_env.specs.BoundedArray
+            observation_spec: types.ObservationSpec,
+            action_spec: types.ActionSpec
     ) -> 'CoderNetworks':
         dummy_obs = jax.tree_map(
             lambda sp: sp.generate_value(),
@@ -193,24 +150,17 @@ class CoderNetworks(NamedTuple):
                 name='encoder'
             )
             predictor = hk.Linear(cfg.cnn_emb_dim, name='predictor')
-            actor = Actor(
-                action_spec,
-                cfg.actor_layers,
-                cfg.activation,
-                cfg.normalization,
-                name='actor'
-            )
-            critic = CriticsEnsemble(
+            critic_ = CriticsEnsemble(
                 cfg.ensemble_size,
+                action_spec.num_values,
                 cfg.critic_layers,
                 cfg.activation,
                 cfg.normalization,
                 name='critic'
             )
 
-            def make_state(obs: types.Observation) -> Array:
-                """Encode observation for the rl heads."""
-                features = []
+            def critic(obs: types.Observation) -> types.Array:
+                state = []
                 for key, spec in sorted(observation_spec.items()):
                     match len(spec.shape), spec.dtype:
                         case 0 | 1, _:
@@ -220,34 +170,24 @@ class CoderNetworks(NamedTuple):
                             if cfg.detach_encoder:
                                 feat = jax.lax.stop_gradient(feat)
                         case _:
-                            raise NotImplementedError(spec)
-                    features.append(feat)
-                return jnp.concatenate(features, -1)
+                            raise NotImplementedError(key, spec)
+                    state.append(feat)
+                state = jnp.concatenate(state, -1)
+                return critic_(state)
 
-            def act(seed: types.RNG,
-                    obs: types.Observation,
-                    training: bool
-                    ) -> Array:
-                state = make_state(obs)
-                dist = actor(state)
-                action = jax.lax.select(
-                    training,
-                    dist.sample(seed=seed),
-                    dist.mode()
-                )
-                return action
+            def act(obs: types.Observation) -> types.Action:
+                q_values = critic(obs).mean(-1)
+                return q_values.argmax(-1)
 
             def init():
                 img = encoder(dummy_obs[types.IMG_KEY])
                 predictor(img)
-                state = make_state(dummy_obs)
-                dist = actor(state)
-                critic(state, dist.mode())
+                critic(dummy_obs)
 
-            return init, (encoder, predictor, actor, critic, act, make_state)
+            return init, (encoder, predictor, critic, act)
 
         def split_params(params: hk.Params) -> tuple[hk.Params]:
-            modules = ('encoder', 'predictor', 'actor', 'critic')
+            modules = ('encoder', 'predictor', 'critic')
 
             def split_fn(module, n, v) -> int:
                 name = module.split('/')[0]
@@ -261,10 +201,8 @@ class CoderNetworks(NamedTuple):
             init=init,
             encoder=apply[0],
             predictor=apply[1],
-            actor=apply[2],
-            critic=apply[3],
-            act=apply[4],
-            make_state=apply[5],
+            critic=apply[2],
+            act=apply[3],
             split_params=split_params,
         )
 
@@ -286,13 +224,13 @@ def _get_norm(norm: str) -> Callable[[Array], Array]:
         case 'layer':
             return hk.LayerNorm(
                 axis=-1,
-                create_scale=False,
-                create_offset=False
+                create_scale=True,
+                create_offset=True
             )
         case 'rms':
             return hk.RMSNorm(
                 axis=-1,
-                create_scale=False
+                create_scale=True
             )
         case _:
             raise ValueError(norm)

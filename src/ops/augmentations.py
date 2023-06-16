@@ -1,23 +1,41 @@
+import jax
 import jax.numpy as jnp
-
 import chex
-import dm_pix
+import haiku as hk
+import numpy as np
 
 
-def random_shift(rng: chex.PRNGKey,
-                 img: chex.Array,
-                 crop_size: int
-                 ) -> chex.Array:
-    """Crop HW dims preserving original shape with padding."""
+def random_crop(rng: chex.PRNGKey,
+                img: chex.Array,
+                crop_size: int
+                ) -> chex.Array:
+    """Crop HW dims preserving original shape via padding."""
     chex.assert_scalar_positive(crop_size)
-    chex.assert_rank(img, 3)  # HWC
+    chex.assert_rank(img, 3)
+    chex.assert_type(img, jnp.uint8)
 
-    shape = img.shape
     pad = (crop_size, crop_size)
-    pad_with = (pad, pad, (0, 0))
-    img = jnp.pad(img, pad_with, mode='edge')
-    return dm_pix.random_crop(rng, img, shape)
+    nopad = (0, 0)
+    pad_with = 2 * (pad,) + (nopad,)
+    crop = jax.random.randint(rng, (2,), 0, 2 * crop_size + 1)
+    crop = jnp.concatenate([crop, jnp.zeros(1)], dtype=jnp.int32)
+    padded = jnp.pad(img, pad_with, mode='edge')
+    return jax.lax.dynamic_slice(padded, crop, img.shape)
 
 
-# May be any compose function
-augmentation_fn = random_shift
+def batched_random_crop(rng: chex.PRNGKey,
+                        img: chex.Array,
+                        crop_size: int
+                        ) -> chex.Array:
+    prefix = img.shape[:-3]
+    if not prefix:
+        return random_crop(rng, img, crop_size)
+    batch = np.prod(prefix, dtype=int)
+    rngs = jax.random.split(rng, batch)
+    rngs = rngs.reshape(prefix + (2,))
+    op = jax.vmap(random_crop, (0, 0, None))
+    op = hk.BatchApply(op, len(prefix))
+    return op(rngs, img, crop_size)
+
+
+augmentation_fn = batched_random_crop

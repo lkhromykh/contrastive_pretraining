@@ -22,21 +22,28 @@ class ReplayBuffer:
             return np.zeros(shape, sp.dtype)
 
         leaves, self._treedef = tree_util.tree_flatten(signature)
+        self._num_leaves = len(leaves)
         self._memory = tree_util.tree_map(from_specs, leaves)
         self._idx = 0
         self._len = 0
 
     def add(self, transition: Nested) -> None:
         leaves, struct = tree_util.tree_flatten(transition)
-        assert struct == self._treedef, 'Structures dont match.'
-        for i in range(len(leaves)):
+        assert struct == self._treedef,\
+            f'Structures dont match: {struct}\n{self._treedef}'
+        for i in range(self._num_leaves):
             self._memory[i][self._idx] = leaves[i]
         self._idx += 1
         self._len = max(self._len, self._idx)
         self._idx %= self.capacity
 
-    def as_dataset(self, batch_size: int) -> 'tf.data.Dataset':
-        """This require tensorflow which is not listed in requirements."""
+    def as_generator(self, batch_size: int) -> Generator[Nested, None, None]:
+        while True:
+            idx = self._rng.integers(0, self._len, batch_size)
+            batch = tree_slice(self._memory, idx)
+            yield self._treedef.unflatten(batch)
+
+    def as_tfdataset(self, batch_size: int) -> 'tf.data.Dataset':
         import tensorflow as tf
         tf.config.set_visible_devices([], 'GPU')
 
@@ -49,12 +56,6 @@ class ReplayBuffer:
         )
         ds = ds.prefetch(tf.data.AUTOTUNE)
         return ds.as_numpy_iterator()
-
-    def _yield(self, batch_size: int) -> Generator[Nested, None, None]:
-        while True:
-            idx = self._rng.integers(0, self._len, batch_size)
-            batch = tree_slice(self._memory, idx)
-            yield self._treedef.unflatten(batch)
 
     def __len__(self) -> int:
         return self._len

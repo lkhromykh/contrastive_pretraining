@@ -7,46 +7,48 @@ from ur_env.remote import RemoteEnvClient
 from ur_env.teleop import Gamepad
 from rltools import dmc_wrappers
 
-address = ('', 5555)
-env = RemoteEnvClient(address)
-env = dmc_wrappers.ActionRescale(env)
-gamepad = Gamepad('/dev/input/event20')
+DIR = 'raw_demos'
 
 
-def environment_loop(env_, policy):
-    ts = env_.reset()
+def environment_loop(env, policy):
+    ts = env.reset()
     trajectory = defaultdict(list)
     while not ts.last():
         obs = ts.observation
         action = policy(obs)
-        ts = env_.step(action)
+        ts = env.step(action)
         trajectory['observations'].append(obs)
         trajectory['actions'].append(action)
         trajectory['rewards'].append(ts.reward)
         trajectory['discounts'].append(ts.discount)
-
-    trajectory['next_observations'] = \
-        trajectory['observations'][1:] + [ts.observation]
+    trajectory['observations'].append(ts.observation)
     return trajectory
 
 
-idx = 0
-while True:
-    print('Input command [add/break]')
-    com = input()
-    if com == 'add':
-        tr = environment_loop(env, lambda _: gamepad.read_input())
+if __name__ == '__main__':
+    # address = ('', 5555)
+    # env = RemoteEnvClient(address)
+    # gamepad = Gamepad('/dev/input/event20')
+    # def policy(_): return gamepad.read_input()
+    from src.test_env import Platforms
+    env = Platforms(0, 5, 5)
+    env = dmc_wrappers.base.Wrapper(env)
+    def policy(_): return int(input())
+
+    idx = len(os.listdir(DIR))
+    com = 1
+    while com:
+        tr = environment_loop(env, policy)
         print('Save this [y/N]?')
         if input() == 'y':
-            path = f'raw_demos/traj{idx}'
+            path = os.path.join(DIR, f'traj{idx}')
             assert not os.path.exists(path)
             with open(path, 'wb') as f:
                 pickle.dump(tr, f)
             idx += 1
-    if com == 'break':
-        break
+        print('Continue?')
+        com = input()
 
-env = dmc_wrappers.DiscreteActionWrapper(env, 3)
-with open('specs.pkl', 'wb') as f:
-    pickle.dump(env.environment_specs, f)
-env.close()
+    with open('specs.pkl', 'wb') as f:
+        pickle.dump(env.environment_specs, f)
+    env.close()
