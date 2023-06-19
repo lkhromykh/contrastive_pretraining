@@ -46,14 +46,15 @@ class Runner:
             os.makedirs(cfg.logdir)
         cfg_path = self.exp_path(Runner.CONFIG)
         cfg.save(cfg_path)
+        # lazy prng, better pass as an argument to the methods
         rng = jax.random.PRNGKey(cfg.seed)
         self._rngseq = hk.PRNGSequence(rng)
 
     def run_replay_collection(self) -> None:
         """Prepare expert's demonstrations."""
-        # Instead of collection we parse existing one.
         status = Runner.Status(self.exp_path())
         if status.demo_exists and status.specs_exists:
+            print('Demos exist.')
             return
         print('Preparing replay.')
         replay = self.make_replay_buffer()
@@ -70,6 +71,7 @@ class Runner:
         """Visual pretraining."""
         status = Runner.Status(self.exp_path())
         if status.encoder_exists:
+            print('Encoder exists.')
             return
         assert status.specs_exists and status.demo_exists, \
             'Nothing to pretrain from.'
@@ -104,7 +106,6 @@ class Runner:
         jax.clear_backends()
 
     def run_drq(self):
-        """RL on top of prefilled buffer and trained visual net."""
         status = Runner.Status(self.exp_path())
 
         print('Interacting.')
@@ -113,7 +114,7 @@ class Runner:
         env = self.make_env()
         networks = self.make_networks()
 
-        # Load the most recent weights.
+        # Load the most recent weights if any.
         def load(path): return cloudpickle.load(open(self.exp_path(path), 'rb'))
         if status.agent_exists:
             state = load(Runner.AGENT)
@@ -140,7 +141,7 @@ class Runner:
         replay_path = self.exp_path(Runner.REPLAY)
         agent_path = self.exp_path(Runner.AGENT)
 
-        # Search for existing replay buffers.
+        # Poll for an existing replay buffers.
         if status.replay_exists:
             replay = self.make_replay_buffer(load=replay_path)
         else:
@@ -149,8 +150,8 @@ class Runner:
             demo = self.make_replay_buffer(load=self.exp_path(Runner.DEMO))
         else:
             demo = replay
-        agent_ds = demo_ds = None
 
+        agent_ds = None
         interactions = len(replay)
         while True:
             traj = ops.environment_loop(env, lambda obs: act(state.params, obs))
@@ -177,7 +178,7 @@ class Runner:
                 logger.write(metrics)
                 replay.save(replay_path)
                 with open(agent_path, 'wb') as f:
-                    pickle.dump(jax.device_get(state.params), f)
+                    cloudpickle.dump(jax.device_get(state), f)
 
     def make_specs(self) -> dmc_wrappers.EnvironmentSpecs:
         with open(self.exp_path(Runner.SPECS), 'rb') as f:
