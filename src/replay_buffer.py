@@ -1,9 +1,16 @@
-from typing import Any, Generator
+import typing
 
 import numpy as np
 from jax import tree_util
 
-Nested = Any
+
+class SpecsLike(typing.Protocol):
+    shape: tuple[int, ...]
+    dtype: type
+
+
+T = typing.TypeVar('T')
+Nested = typing.Union[T, 'Nested[T]']
 
 
 class ReplayBuffer:
@@ -11,23 +18,19 @@ class ReplayBuffer:
     def __init__(self,
                  rng: np.random.Generator | int,
                  capacity: int,
-                 signature: Nested
+                 signature: Nested[SpecsLike]
                  ) -> None:
         self._rng = np.random.default_rng(rng)
         self.capacity = capacity
         self.signature = signature
 
-        def from_specs(sp):
-            shape = (capacity,) + sp.shape
-            return np.zeros(shape, sp.dtype)
-
         leaves, self._treedef = tree_util.tree_flatten(signature)
         self._num_leaves = len(leaves)
-        self._memory = tree_util.tree_map(from_specs, leaves)
+        self._memory = ReplayBuffer.tile_with(leaves, capacity, np.zeros)
         self._idx = 0
         self._len = 0
 
-    def add(self, transition: Nested) -> None:
+    def add(self, transition: Nested[np.ndarray]) -> None:
         leaves, struct = tree_util.tree_flatten(transition)
         assert struct == self._treedef,\
             f'Structures dont match: {struct}\n{self._treedef}'
@@ -37,7 +40,9 @@ class ReplayBuffer:
         self._len = max(self._len, self._idx)
         self._idx %= self.capacity
 
-    def as_generator(self, batch_size: int) -> Generator[Nested, None, None]:
+    def as_generator(self,
+                     batch_size: int
+                     ) -> typing.Generator[Nested, None, None]:
         while True:
             idx = self._rng.integers(0, self._len, batch_size)
             batch = tree_slice(self._memory, idx)
@@ -48,14 +53,14 @@ class ReplayBuffer:
         try:
             tf.config.set_visible_devices([], 'GPU')
         except RuntimeError:
+            # Already initialized.
             pass
 
-        def to_tf_spec(sp):
-            return tf.TensorSpec((batch_size,) + sp.shape, sp.dtype)
-
+        output_signature = ReplayBuffer.tile_with(
+            self.signature, batch_size, tf.TensorSpec)
         ds = tf.data.Dataset.from_generator(
             lambda: self.as_generator(batch_size),
-            output_signature=tree_util.tree_map(to_tf_spec, self.signature)
+            output_signature=output_signature
         )
         ds = ds.prefetch(tf.data.AUTOTUNE)
         return ds.as_numpy_iterator()
@@ -78,6 +83,25 @@ class ReplayBuffer:
         replay._len = len_
         return replay
 
+    @staticmethod
+    def tile_with(signature: Nested[SpecsLike],
+                  reps: int | Nested[int],
+                  constructor: typing.Type[SpecsLike] | None = None
+                  ) -> Nested[SpecsLike]:
+        if isinstance(reps, int):
+            reps = tree_util.tree_map(lambda _: reps, signature)
+        else:
+            struct = tree_util.tree_structure
+            assert struct(signature) == struct(reps)
 
-def tree_slice(tree_: 'T', sl: slice, is_leaf=None) -> 'T':
+        def tile_fn(sp, p):
+            ctor = constructor or type(sp)
+            return ctor(shape=(p,) + sp.shape, dtype=sp.dtype)
+        return tree_util.tree_map(tile_fn, signature, reps)
+
+
+def tree_slice(tree_: Nested[np.ndarray],
+               sl: slice,
+               is_leaf=None
+               ) -> Nested[np.ndarray]:
     return tree_util.tree_map(lambda t: t[sl], tree_, is_leaf=is_leaf)

@@ -21,13 +21,13 @@ class CoderConfig(Config):
     # https://github.com/facebookresearch/drqv2/blob/main/cfgs/config.yaml
     gamma: float = .98
     lambda_: float = 1.
-    utd: int = 4
+    utd: int = 10
     detach_encoder: bool = True
     drq_batch_size: int = 32
     drq_learning_rate: float = 1e-3
     drq_targets_update: float = 1e-2
     log_every: int = 5
-    pretrain_steps: int = 16
+    pretrain_steps: int = 40
 
     # Architecture
     activation: str = 'relu'

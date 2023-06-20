@@ -188,20 +188,17 @@ class Runner:
             return ReplayBuffer.load(load)
         env_specs = self.make_specs()
         signature = {
+            'observations': env_specs.observation_spec,
             'actions': env_specs.action_spec,
             'rewards': env_specs.reward_spec,
             'discounts': env_specs.discount_spec,
         }
         tl = self.cfg.time_limit
-
-        def time_major(sp, times=tl):
-            return np.zeros((times,) + sp.shape, dtype=sp.dtype)
-        tree_map = jax.tree_util.tree_map
-        signature = tree_map(time_major, signature)
-        signature['observations'] = tree_map(
-            lambda x: time_major(x, tl + 1),
-            env_specs.observation_spec
-        )
+        tm = jax.tree_util.tree_map
+        signature = tm(lambda sp: sp.generate_value(), signature)
+        reps = tm(lambda _: tl, signature)
+        reps['observations'] = tm(lambda _: tl + 1, reps['observations'])
+        signature = ReplayBuffer.tile_with(signature, reps, np.zeros)
         np_rng = next(self._rngseq)[0].item()
         return ReplayBuffer(np_rng, self.cfg.replay_capacity, signature)
 

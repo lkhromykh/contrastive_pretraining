@@ -46,7 +46,7 @@ if __name__ == '__main__':
     env, policy = test()
     env = dmc_wrappers.base.Wrapper(env)
     idx = 0
-    num_episodes = 20
+    num_episodes = 40
     preexist = len(os.listdir(DIR))
     while idx < num_episodes:
         tr = environment_loop(env, policy)
