@@ -8,6 +8,7 @@ from src import types_ as types
 
 
 def nested_stack(traj: types.Trajectory) -> types.Trajectory:
+    """Convert leaves from list to array."""
     def stack(xs): return tree_map(lambda *x: np.stack(x), *xs)
     traj = tree_map(stack, traj, is_leaf=lambda x: isinstance(x, list))
     return dict(traj)
@@ -16,6 +17,10 @@ def nested_stack(traj: types.Trajectory) -> types.Trajectory:
 def environment_loop(env: dm_env.Environment,
                      policy: types.Policy,
                      ) -> types.Trajectory:
+    """Interact with the environment.
+
+    All episodes are expected to last the same amount of timesteps.
+    """
     ts = env.reset()
     trajectory = defaultdict(list)
     while not ts.last():
@@ -30,8 +35,8 @@ def environment_loop(env: dm_env.Environment,
     return nested_stack(trajectory)
 
 
-def assert_valid_env(env: dm_env.Environment) -> None:
-    """Check compatibility with the networks."""
+def assert_compliance(env: dm_env.Environment) -> None:
+    """Assert task and alg specific assumptions."""
     spec = env.observation_spec()
     assert types.IMG_KEY in spec, f'Image is missing from the obs spec: {spec}'
     img = spec[types.IMG_KEY]

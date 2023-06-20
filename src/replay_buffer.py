@@ -45,7 +45,10 @@ class ReplayBuffer:
 
     def as_tfdataset(self, batch_size: int) -> 'tf.data.Dataset':
         import tensorflow as tf
-        tf.config.set_visible_devices([], 'GPU')
+        try:
+            tf.config.set_visible_devices([], 'GPU')
+        except RuntimeError:
+            pass
 
         def to_tf_spec(sp):
             return tf.TensorSpec((batch_size,) + sp.shape, sp.dtype)

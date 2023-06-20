@@ -7,7 +7,7 @@ from src.runner import Runner
 
 def main(config):
     runner = Runner(config)
-    # runner.run_replay_collection()
+    runner.run_replay_collection()
     # runner.run_byol()
     runner.run_drq()
 

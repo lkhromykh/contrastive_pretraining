@@ -71,7 +71,6 @@ class Encoder(hk.Module):
             x = conv(x)
             x = _get_norm(self.norm)(x)
             x = _get_act(self.act)(x)
-
         emb = hk.Linear(self.emb_dim, name='projector')
         return emb(x).reshape(prefix + (-1,))
 
@@ -94,7 +93,8 @@ class DQN(hk.Module):
     def __call__(self, state: Array) -> Array:
         chex.assert_type(state, float)
         x = MLP(self.layers, self.act, self.norm)(state)
-        return hk.Linear(self.act_dim)(x)
+        w_init = hk.initializers.TruncatedNormal(stddev=1e-2)
+        return hk.Linear(self.act_dim, w_init=w_init)(x)
 
 
 class CriticsEnsemble(hk.Module):
@@ -160,6 +160,7 @@ class CoderNetworks(NamedTuple):
             )
 
             def critic(obs: types.Observation) -> types.Array:
+                return critic_(obs['nodes'])
                 state = []
                 for key, spec in sorted(observation_spec.items()):
                     match len(spec.shape), spec.dtype:

@@ -21,13 +21,13 @@ class CoderConfig(Config):
     # https://github.com/facebookresearch/drqv2/blob/main/cfgs/config.yaml
     gamma: float = .98
     lambda_: float = 1.
-    utd: int = 1
-    detach_encoder: bool = False
+    utd: int = 4
+    detach_encoder: bool = True
     drq_batch_size: int = 32
     drq_learning_rate: float = 1e-3
-    drq_targets_update: float = 5e-3
+    drq_targets_update: float = 1e-2
     log_every: int = 5
-    pretrain_steps: int = 10
+    pretrain_steps: int = 16
 
     # Architecture
     activation: str = 'relu'
@@ -37,7 +37,7 @@ class CoderConfig(Config):
     cnn_depths: Layers = (64, 64, 64, 64)
     cnn_kernels: Layers = (3, 3, 3, 3)
     cnn_strides: Layers = (2, 2, 2, 2)
-    critic_layers: Layers = (64,)
+    critic_layers: Layers = (64, 64, 64)
     ensemble_size: int = 2
 
     # Train common
@@ -46,7 +46,7 @@ class CoderConfig(Config):
     max_grad: float = 50.
     weight_decay: float = 1e-6
 
-    logdir: str = '.'
+    logdir: str = 'logdir'
     task: str = 'test'
-    time_limit: int = 32
+    time_limit: int = 1
     seed: int = 0

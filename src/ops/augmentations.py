@@ -11,8 +11,8 @@ def random_crop(rng: chex.PRNGKey,
                 ) -> chex.Array:
     """Crop HW dims preserving original shape via padding."""
     chex.assert_scalar_positive(crop_size)
-    chex.assert_rank(img, 3)
     chex.assert_type(img, jnp.uint8)
+    chex.assert_rank(img, 3)
 
     pad = (crop_size, crop_size)
     nopad = (0, 0)

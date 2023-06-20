@@ -16,8 +16,8 @@ from src import types_ as types
 def drq(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
 
     def select_actions(q_values, actions):
-        gather = hk.BatchApply(jax.vmap(lambda src, idx: src[idx]))
-        return gather(q_values, actions)
+        select = hk.BatchApply(jax.vmap(lambda q, a: q[a]))
+        return select(q_values, actions)
 
     def loss_fn(params: hk.Params,
                 target_params: hk.Params,
@@ -31,15 +31,18 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
             obs_t, (cfg.time_limit + 1, cfg.drq_batch_size))
         chex.assert_tree_shape_prefix(
             [r_t, a_t, disc_t], (cfg.time_limit, cfg.drq_batch_size))
-        del rng  # TODO: actually introduce augmentations
+        del rng  # TODO: use augmentations
         # q_t.shape = (..., num_actions, num_critics)
         q_t = networks.critic(params, obs_t)
         a_dash_t = q_t.mean(-1).argmax(-1)
         q_t = select_actions(q_t[:-1], a_t)
         target_q_t = networks.critic(target_params, obs_t)
+        adv_t = target_q_t.max(-2) - target_q_t.min(-2)
+        q_std = target_q_t.std(-1)
         pi_t = (a_t == a_dash_t[:-1]).astype(q_t.dtype)
         v_tp1 = select_actions(target_q_t, a_dash_t)[1:]
         target_q_t = select_actions(target_q_t[:-1], a_t)
+        sampled_q_std = target_q_t.std(-1)
 
         in_axes = 5 * (1,) + (None,)
         target_fn = jax.vmap(tree_backup, in_axes=in_axes,
@@ -57,10 +60,14 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
 
         metrics = dict(
             critic_loss=critic_loss,
-            reward=r_t.mean(),
-            pi_t=pi_t.mean(),
-            q_t=q_t.mean()
+            reward=r_t,
+            pi=pi_t,
+            value=v_tp1,
+            advantage=adv_t,
+            q_ensemble_std=q_std,
+            q_ensemble_std_sampled=sampled_q_std
         )
+        metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         return critic_loss, metrics
 
     @chex.assert_max_traces(1)

@@ -25,29 +25,37 @@ def environment_loop(env, policy):
     return trajectory
 
 
-if __name__ == '__main__':
-    # address = ('', 5555)
-    # env = RemoteEnvClient(address)
-    # gamepad = Gamepad('/dev/input/event20')
-    # def policy(_): return gamepad.read_input()
+def test():
     from src.test_env import Platforms
-    env = Platforms(0, 5, 5)
-    env = dmc_wrappers.base.Wrapper(env)
-    def policy(_): return int(input())
+    env = Platforms(1, 1, 10)
+    def policy(obs): return obs['nodes'].argmax(-1)
+    return env, policy
 
-    idx = len(os.listdir(DIR))
-    com = 1
-    while com:
+
+def train():
+    address = ('', 5555)
+    env = RemoteEnvClient(address)
+    gamepad = Gamepad('/dev/input/event20')
+    def policy(_): return gamepad.read_input()
+    return env, policy
+
+
+if __name__ == '__main__':
+    if not os.path.exists(DIR):
+        os.makedirs(DIR)
+    env, policy = test()
+    env = dmc_wrappers.base.Wrapper(env)
+    idx = 0
+    num_episodes = 20
+    preexist = len(os.listdir(DIR))
+    while idx < num_episodes:
         tr = environment_loop(env, policy)
-        print('Save this [y/N]?')
-        if input() == 'y':
-            path = os.path.join(DIR, f'traj{idx}')
-            assert not os.path.exists(path)
+        print('Save this? [y/N]')
+        if True or input() == 'y':
+            path = os.path.join(DIR, f'traj{preexist+idx}')
             with open(path, 'wb') as f:
                 pickle.dump(tr, f)
             idx += 1
-        print('Continue?')
-        com = input()
 
     with open('specs.pkl', 'wb') as f:
         pickle.dump(env.environment_specs, f)
