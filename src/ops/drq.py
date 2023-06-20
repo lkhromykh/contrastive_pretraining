@@ -29,33 +29,34 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
                 ) -> jax.Array:
         chex.assert_tree_shape_prefix(
             obs_t, (cfg.time_limit + 1, cfg.drq_batch_size))
-        chex.assert_tree_shape_prefix(
+        chex.assert_shape(
             [r_t, a_t, disc_t], (cfg.time_limit, cfg.drq_batch_size))
-        del rng  # TODO: use augmentations
-        # q_t.shape = (..., num_actions, num_critics)
+
+        TIME_DIM, BATCH_DIM, ACT_DIM, QS_DIM = range(4)
+        tc_aug = jax.vmap(  # time consistent augmentation
+            augmentation_fn, in_axes=(None, TIME_DIM, None), out_axes=TIME_DIM)
+        obs_t[types.IMG_KEY] = tc_aug(rng, obs_t[types.IMG_KEY], cfg.shift)
         q_t = networks.critic(params, obs_t)
-        a_dash_t = q_t.mean(-1).argmax(-1)
+        a_dash_t = q_t.mean(QS_DIM).argmax(ACT_DIM)
         q_t = select_actions(q_t[:-1], a_t)
         target_q_t = networks.critic(target_params, obs_t)
-        adv_t = target_q_t.max(-2) - target_q_t.min(-2)
-        q_std = target_q_t.std(-1)
+        adv_t = target_q_t.max(ACT_DIM) - target_q_t.min(ACT_DIM)
+        q_std = target_q_t.std(QS_DIM)
         pi_t = (a_t == a_dash_t[:-1]).astype(q_t.dtype)
         v_tp1 = select_actions(target_q_t, a_dash_t)[1:]
         target_q_t = select_actions(target_q_t[:-1], a_t)
-        sampled_q_std = target_q_t.std(-1)
+        sampled_q_std = target_q_t.std(QS_DIM)
 
-        in_axes = 5 * (1,) + (None,)
-        target_fn = jax.vmap(tree_backup, in_axes=in_axes,
-                             out_axes=1, axis_name='batch')
-        in_axes = 2 * (-1,) + 4 * (None,)
-        target_fn = jax.vmap(target_fn, in_axes=in_axes,
-                             out_axes=-1, axis_name='q_ensemble')
+        in_axes = 5 * (BATCH_DIM,) + (None,)
+        target_fn = jax.vmap(tree_backup, in_axes=in_axes, out_axes=BATCH_DIM)
+        in_axes = 2 * (QS_DIM,) + 4 * (None,)
+        target_fn = jax.vmap(target_fn, in_axes=in_axes, out_axes=QS_DIM)
 
         disc_t *= cfg.gamma
         target_q_t = target_fn(target_q_t, v_tp1,
                                r_t, disc_t,
                                pi_t, cfg.lambda_)
-        target_q_t = target_q_t.min(-1, keepdims=True)
+        target_q_t = target_q_t.min(QS_DIM, keepdims=True)
         critic_loss = jnp.square(q_t - target_q_t).mean()
 
         metrics = dict(
