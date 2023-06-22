@@ -8,7 +8,7 @@ from src import types_ as types
 
 
 def nested_stack(traj: types.Trajectory) -> types.Trajectory:
-    """Convert leaves from list to array."""
+    """Convert leaves from lists to arrays."""
     def stack(xs): return tree_map(lambda *x: np.stack(x), *xs)
     traj = tree_map(stack, traj, is_leaf=lambda x: isinstance(x, list))
     return dict(traj)

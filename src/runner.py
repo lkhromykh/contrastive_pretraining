@@ -1,5 +1,6 @@
 import os
 import time
+from collections import deque
 from typing import Any, NamedTuple
 
 import numpy as np
@@ -52,12 +53,12 @@ class Runner:
         if status.demo_exists:
             print('Demos exist.')
             return
-        assert status.specs_exists, 'No specs found.'
-        assert status.raw_demos_exists, 'No raw demos found.'
+        assert status.specs_exists, 'Environment specs not found.'
+        assert status.raw_demos_exists, 'Raw demos not found.'
         print('Preparing replay.')
         replay = self.make_replay_buffer()
-        counter = 0
         path = self.exp_path(Runner.RAW_DIR)
+        counter = 0
         for demo in os.scandir(path):
             trajectory: types.Trajectory = self._open(demo)
             trajectory = ops.nested_stack(trajectory)
@@ -66,7 +67,7 @@ class Runner:
         print('Total number of episodes: ', counter)
         replay.save(self.exp_path(Runner.DEMO))
 
-    def run_byol(self):
+    def run_byol(self) -> None:
         """Visual pretraining."""
         status = self.get_status()
         if status.encoder_exists:
@@ -103,7 +104,7 @@ class Runner:
         self._write(state, Runner.ENCODER)
         jax.clear_backends()
 
-    def run_drq(self):
+    def run_drq(self) -> None:
         status = self.get_status()
 
         print('Interacting.')
@@ -149,16 +150,19 @@ class Runner:
 
         agent_ds = None
         num_episodes = len(replay)
+        scores = deque(maxlen=100)
         while True:
             traj = ops.environment_loop(env, lambda obs: act(state.params, obs))
             num_episodes += 1
+            scores.append(np.sum(traj['rewards']))
             replay.add(traj)
-            if len(replay) < c.pretrain_steps:
+            if num_episodes < c.pretrain_steps:
                 continue
             if agent_ds is None:
-                half_batch = c.drq_batch_size // 2
-                agent_ds = replay.as_tfdataset(half_batch)
-                demo_ds = demo.as_tfdataset(half_batch)
+                demo_batch = int(c.demo_fraction * c.drq_batch_size)
+                agent_batch = c.drq_batch_size - demo_batch
+                agent_ds = replay.as_tfdataset(agent_batch)
+                demo_ds = demo.as_tfdataset(demo_batch)
                 print('Training.')
             for _ in range(c.utd):
                 agent_batch = next(agent_ds)
@@ -172,10 +176,12 @@ class Runner:
             if num_episodes % c.log_every == 0:
                 metrics.update(step=num_episodes * c.time_limit,
                                time=time.time() - start,
+                               score_wma100=np.mean(scores),
                                grad_step=state.step)
                 logger.write(metrics)
                 replay.save(replay_path)
                 self._write(jax.device_get(state), Runner.AGENT)
+        jax.clear_backends()
 
     def make_specs(self) -> dmc_wrappers.EnvironmentSpecs:
         if os.path.exists(self.exp_path(Runner.SPECS)):
@@ -198,7 +204,7 @@ class Runner:
         signature = tm(lambda sp: sp.generate_value(), signature)
         reps = tm(lambda _: tl, signature)
         reps['observations'] = tm(lambda _: tl + 1, reps['observations'])
-        signature = ReplayBuffer.tile_with(signature, reps, np.zeros)
+        signature = ReplayBuffer.tile_signature(signature, reps, np.zeros)
         np_rng = next(self._rngseq)[0].item()
         return ReplayBuffer(np_rng, self.cfg.replay_capacity, signature)
 
@@ -207,6 +213,9 @@ class Runner:
             case ['test']:
                 from src.test_env import Platforms
                 env = Platforms(0, self.cfg.time_limit, 10)
+            case ['particle']:
+                from src.particle_env import ParticleEnv
+                env = ParticleEnv(time_limit=.05 * (self.cfg.time_limit - 1))
             case 'ur', _:
                 from ur_env.remote import RemoteEnvClient
                 address = None

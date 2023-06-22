@@ -3,14 +3,17 @@ import typing
 import numpy as np
 from jax import tree_util
 
-
-class SpecsLike(typing.Protocol):
-    shape: tuple[int, ...]
-    dtype: type
-
-
 T = typing.TypeVar('T')
 Nested = typing.Union[T, 'Nested[T]']
+Shape = tuple[int, ...]
+
+
+class SpecsLike(typing.Protocol):
+    shape: Shape
+    dtype: type
+
+    def __init__(self, shape: Shape, dtype: type, *args, **kwargs) -> None:
+        ...
 
 
 class ReplayBuffer:
@@ -26,7 +29,7 @@ class ReplayBuffer:
 
         leaves, self._treedef = tree_util.tree_flatten(signature)
         self._num_leaves = len(leaves)
-        self._memory = ReplayBuffer.tile_with(leaves, capacity, np.zeros)
+        self._memory = ReplayBuffer.tile_signature(leaves, capacity, np.zeros)
         self._idx = 0
         self._len = 0
 
@@ -42,10 +45,10 @@ class ReplayBuffer:
 
     def as_generator(self,
                      batch_size: int
-                     ) -> typing.Generator[Nested, None, None]:
+                     ) -> typing.Generator[Nested[np.ndarray], None, None]:
         while True:
             idx = self._rng.integers(0, self._len, batch_size)
-            batch = tree_slice(self._memory, idx)
+            batch = tree_util.tree_map(lambda x: x[idx], self._memory)
             yield self._treedef.unflatten(batch)
 
     def as_tfdataset(self, batch_size: int) -> 'tf.data.Dataset':
@@ -56,7 +59,7 @@ class ReplayBuffer:
             # Already initialized.
             pass
 
-        output_signature = ReplayBuffer.tile_with(
+        output_signature = ReplayBuffer.tile_signature(
             self.signature, batch_size, tf.TensorSpec)
         ds = tf.data.Dataset.from_generator(
             lambda: self.as_generator(batch_size),
@@ -84,10 +87,11 @@ class ReplayBuffer:
         return replay
 
     @staticmethod
-    def tile_with(signature: Nested[SpecsLike],
-                  reps: int | Nested[int],
-                  constructor: typing.Type[SpecsLike] | None = None
-                  ) -> Nested[SpecsLike]:
+    def tile_signature(signature: Nested[SpecsLike],
+                       reps: int | Nested[int],
+                       constructor: typing.Callable[[Shape, type], SpecsLike]
+                                    | None = None
+                       ) -> Nested[SpecsLike]:
         if isinstance(reps, int):
             reps = tree_util.tree_map(lambda _: reps, signature)
         else:
@@ -96,12 +100,5 @@ class ReplayBuffer:
 
         def tile_fn(sp, p):
             ctor = constructor or type(sp)
-            return ctor(shape=(p,) + sp.shape, dtype=sp.dtype)
+            return ctor((p,) + sp.shape, sp.dtype)
         return tree_util.tree_map(tile_fn, signature, reps)
-
-
-def tree_slice(tree_: Nested[np.ndarray],
-               sl: slice,
-               is_leaf=None
-               ) -> Nested[np.ndarray]:
-    return tree_util.tree_map(lambda t: t[sl], tree_, is_leaf=is_leaf)

@@ -19,9 +19,9 @@ def byol(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
                 img: jax.Array
                 ) -> jax.Array:
         chex.assert_type(img, jnp.uint8)
-        k1, k2 = jax.random.split(rng)
-        view = augmentation_fn(k1, img, cfg.shift)
-        view_prime = augmentation_fn(k2, img, cfg.shift)
+        rng1, rng2 = jax.random.split(rng)
+        view = augmentation_fn(rng1, img, cfg.shift)
+        view_prime = augmentation_fn(rng2, img, cfg.shift)
 
         def byol_fn(v, vp):
             y = networks.encoder(params, v)

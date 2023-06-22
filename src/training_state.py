@@ -14,7 +14,7 @@ class TrainingState(NamedTuple):
     rng: jax.random.PRNGKey
     step: jnp.ndarray
     tx: optax.TransformUpdateFn
-    target_update_var: float
+    target_update_var: float | int
 
     def update(self, grad: hk.Params) -> 'TrainingState':
         params = self.params
@@ -24,8 +24,16 @@ class TrainingState(NamedTuple):
 
         updates, opt_state = self.tx(grad, opt_state, params)
         params = optax.apply_updates(params, updates)
-        target_params = optax.incremental_update(
-            params, target_params, self.target_update_var)
+        if (tv := self.target_update_var) > 0:
+            match tv:
+                case int():
+                    target_params = optax.periodic_update(
+                        params, target_params, step, tv)
+                case float():
+                    target_params = optax.incremental_update(
+                        params, target_params, tv)
+                case _:
+                    raise NotImplementedError(tv)
 
         return self._replace(
             params=params,
@@ -39,7 +47,7 @@ class TrainingState(NamedTuple):
              rng: jax.random.PRNGKey,
              params: hk.Params,
              optim: optax.GradientTransformation,
-             target_update_var: float
+             target_update_var: float | int
              ) -> 'TrainingState':
         return cls(
             params=params,

@@ -71,8 +71,9 @@ class Encoder(hk.Module):
             x = conv(x)
             x = _get_norm(self.norm)(x)
             x = _get_act(self.act)(x)
+        x = jnp.reshape(x, prefix + (-1,))
         emb = hk.Linear(self.emb_dim, name='projector')
-        return emb(x).reshape(prefix + (-1,))
+        return emb(x)
 
 
 class DQN(hk.Module):
@@ -160,7 +161,6 @@ class CoderNetworks(NamedTuple):
             )
 
             def critic(obs: types.Observation) -> types.Array:
-                return critic_(obs['nodes'])
                 state = []
                 for key, spec in sorted(observation_spec.items()):
                     match len(spec.shape), spec.dtype:
@@ -177,8 +177,11 @@ class CoderNetworks(NamedTuple):
                 return critic_(state)
 
             def act(obs: types.Observation) -> types.Action:
-                q_values = critic(obs).mean(-1)
-                return q_values.argmax(-1)
+                q_values = critic(obs)
+                q_mean = q_values.mean(-1)
+                q_std = q_values.std(-1)
+                score = q_mean + cfg.disag_expl * q_std
+                return score.argmax(-1)
 
             def init():
                 img = encoder(dummy_obs[types.IMG_KEY])
@@ -187,7 +190,7 @@ class CoderNetworks(NamedTuple):
 
             return init, (encoder, predictor, critic, act)
 
-        def split_params(params: hk.Params) -> tuple[hk.Params]:
+        def split_params(params: hk.Params) -> tuple[hk.Params, ...]:
             modules = ('encoder', 'predictor', 'critic')
 
             def split_fn(module, n, v) -> int:
