@@ -3,11 +3,11 @@ import os
 import pickle
 from collections import defaultdict
 
-from ur_env.remote import RemoteEnvClient
-from ur_env.teleop import Gamepad
 from rltools import dmc_wrappers
 
 DIR = 'raw_demos'
+TEST = False
+TOTAL_DEMOS = 10
 
 
 def environment_loop(env, policy):
@@ -27,31 +27,51 @@ def environment_loop(env, policy):
 
 def test():
     from src.test_env import Platforms
-    env = Platforms(1, 1, 10)
-    def policy(obs): return obs['nodes'].argmax(-1)
-    return env, policy
+    env_ = Platforms(1, 1, 10)
+    def policy_(obs): return obs['nodes'].argmax(-1)
+    return env_, policy_
 
 
 def train():
+    from ur_env.remote import RemoteEnvClient
+    from ur_env.teleop.xboxc import Gamepad
+    evkey = Gamepad.EV_KEY
+    evabs = Gamepad.EV_ABS
+    mapping = {
+        evkey.BTN_A: 5,
+        evkey.BTN_Y: 4,
+        evabs.ABS_HAT0X: lambda v: 0 if v > 0 else 1,
+        evabs.ABS_HAT0Y: lambda v: 2 if v > 0 else 3,
+        evkey.BTN_TR: 8,
+        evkey.BTN_TL: 9,
+        evabs.ABS_MISC: lambda v: 6 if v > 0 else 7,
+    }
     address = ('', 5555)
-    env = RemoteEnvClient(address)
-    gamepad = Gamepad('/dev/input/event20')
-    def policy(_): return gamepad.read_input()
-    return env, policy
+    env_ = RemoteEnvClient(address)
+    gamepad = Gamepad(mapping, '/dev/input/event20')
+    def policy_(_): return gamepad.read_input()
+    return env_, policy_
+
+
+def test2():
+    from src.particle_env import ParticleEnv
+    env_ = ParticleEnv(time_limit=.05 * 9)
+    def policy_(_): return int(input())
+    return env_, policy_
 
 
 if __name__ == '__main__':
     if not os.path.exists(DIR):
         os.makedirs(DIR)
-    env, policy = test()
+    env, policy = test2() if TEST else train()
     env = dmc_wrappers.base.Wrapper(env)
     idx = 0
-    num_episodes = 40
     preexist = len(os.listdir(DIR))
+    num_episodes = TOTAL_DEMOS - preexist
     while idx < num_episodes:
         tr = environment_loop(env, policy)
         print('Save this? [y/N]')
-        if True or input() == 'y':
+        if TEST or input() == 'y':
             path = os.path.join(DIR, f'traj{preexist+idx}')
             with open(path, 'wb') as f:
                 pickle.dump(tr, f)

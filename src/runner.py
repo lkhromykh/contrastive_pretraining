@@ -106,6 +106,7 @@ class Runner:
 
     def run_drq(self) -> None:
         status = self.get_status()
+        jax.clear_backends()
 
         print('Interacting.')
         start = time.time()
@@ -184,9 +185,7 @@ class Runner:
         jax.clear_backends()
 
     def make_specs(self) -> dmc_wrappers.EnvironmentSpecs:
-        if os.path.exists(self.exp_path(Runner.SPECS)):
-            return self._open(Runner.SPECS)
-        return self.make_env().environment_specs
+        return self._open(Runner.SPECS)
 
     def make_replay_buffer(self, *, load: str | None = None) -> ReplayBuffer:
         # Here replay stores a whole episode rather than a single transition.

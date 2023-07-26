@@ -21,32 +21,34 @@ class CoderConfig(Config):
     # https://github.com/facebookresearch/drqv2/blob/main/cfgs/config.yaml
     gamma: float = .98
     lambda_: float = 1.
+    disag_expl: float = 0.
     utd: int = 10
-    detach_encoder: bool = True
+    detach_encoder: bool = False
     drq_batch_size: int = 32
+    demo_fraction: float = 0.5
     drq_learning_rate: float = 1e-3
     drq_targets_update: float = 1e-2
-    log_every: int = 5
-    pretrain_steps: int = 40
+    log_every: int = 10
+    pretrain_steps: int = 16
 
     # Architecture
-    activation: str = 'relu'
+    activation: str = 'elu'
     normalization: str = 'layer'
 
     cnn_emb_dim: int = 64
     cnn_depths: Layers = (64, 64, 64, 64)
     cnn_kernels: Layers = (3, 3, 3, 3)
     cnn_strides: Layers = (2, 2, 2, 2)
-    critic_layers: Layers = (64, 64, 64)
+    critic_layers: Layers = (512,)
     ensemble_size: int = 2
 
     # Train common
     jit: bool = True
     replay_capacity: int = 10_000
     max_grad: float = 50.
-    weight_decay: float = 1e-6
+    weight_decay: float = 1e-5
 
     logdir: str = 'logdir'
-    task: str = 'test'
-    time_limit: int = 1
+    task: str = 'particle'
+    time_limit: int = 16
     seed: int = 0

@@ -1,7 +1,6 @@
 from collections.abc import Callable
 from typing import NamedTuple
 
-import numpy as np
 import jax
 import jax.numpy as jnp
 import chex
@@ -60,7 +59,7 @@ class Encoder(hk.Module):
         chex.assert_type(img, jnp.uint8)
 
         prefix = img.shape[:-3]
-        reshape = (np.prod(prefix, dtype=int),) + img.shape[-3:]
+        reshape = (-1,) + img.shape[-3:]
         x = jnp.reshape(img / 255., reshape)
 
         cnn_arch = zip(self.depths, self.kernels, self.strides)
@@ -94,8 +93,7 @@ class DQN(hk.Module):
     def __call__(self, state: Array) -> Array:
         chex.assert_type(state, float)
         x = MLP(self.layers, self.act, self.norm)(state)
-        w_init = hk.initializers.TruncatedNormal(stddev=1e-2)
-        return hk.Linear(self.act_dim, w_init=w_init)(x)
+        return hk.Linear(self.act_dim)(x)
 
 
 class CriticsEnsemble(hk.Module):

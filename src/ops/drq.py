@@ -34,13 +34,15 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
             select = hk.BatchApply(jax.vmap(lambda q, a: q[a]))
             return select(q_values, actions)
 
-        tc_aug = jax.vmap(  # time consistent augmentation
-            augmentation_fn, in_axes=(None, TIME_DIM, None), out_axes=TIME_DIM)
-        obs_t[types.IMG_KEY] = tc_aug(rng, obs_t[types.IMG_KEY], cfg.shift)
+        k1, k2 = jax.random.split(rng)
+        target_obs_t = obs_t.copy()
+        img = obs_t[types.IMG_KEY]
+        target_obs_t[types.IMG_KEY] = augmentation_fn(k1, img, cfg.shift)
+        obs_t[types.IMG_KEY] = augmentation_fn(k2, img, cfg.shift)
         q_t = networks.critic(params, obs_t)
         a_dash_t = q_t.mean(QS_DIM).argmax(ACT_DIM)
         q_t = select_actions(q_t[:-1], a_t)
-        target_q_t = networks.critic(target_params, obs_t)
+        target_q_t = networks.critic(target_params, target_obs_t)
         adv_t = target_q_t.max(ACT_DIM) - target_q_t.min(ACT_DIM)  # debug
         q_std = target_q_t.std(QS_DIM)  # debug
         pi_t = (a_t == a_dash_t[:-1]).astype(q_t.dtype)
