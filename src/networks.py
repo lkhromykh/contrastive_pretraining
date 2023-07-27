@@ -18,7 +18,7 @@ class MLP(hk.Module):
                  layers: types.Layers,
                  act: str,
                  norm: str,
-                 activate_final: bool = True,
+                 activate_final: bool = False,
                  name: str | None = None,
                  ) -> None:
         super().__init__(name)
@@ -71,7 +71,10 @@ class Encoder(hk.Module):
             x = _get_norm(self.norm)(x)
             x = _get_act(self.act)(x)
         x = jnp.reshape(x, prefix + (-1,))
-        emb = hk.Linear(self.emb_dim, name='projector')
+        emb = MLP((self.emb_dim, self.emb_dim),
+                  self.act,
+                  self.norm,
+                  name='projector')
         return emb(x)
 
 
@@ -92,7 +95,8 @@ class DQN(hk.Module):
 
     def __call__(self, state: Array) -> Array:
         chex.assert_type(state, float)
-        x = MLP(self.layers, self.act, self.norm)(state)
+        mlp = MLP(self.layers, self.act, self.norm, activate_final=True)
+        x = mlp(state)
         return hk.Linear(self.act_dim)(x)
 
 
@@ -139,8 +143,9 @@ class CoderNetworks(NamedTuple):
         @hk.without_apply_rng
         @hk.multi_transform
         def model():
+            edim = cfg.cnn_emb_dim
             encoder = Encoder(
-                cfg.cnn_emb_dim,
+                edim,
                 cfg.cnn_depths,
                 cfg.cnn_kernels,
                 cfg.cnn_strides,
@@ -148,7 +153,12 @@ class CoderNetworks(NamedTuple):
                 cfg.normalization,
                 name='encoder'
             )
-            predictor = hk.Linear(cfg.cnn_emb_dim, name='predictor')
+            predictor = MLP(
+                (edim, edim),
+                cfg.activation,
+                cfg.normalization,
+                name='predictor'
+            )
             critic_ = CriticsEnsemble(
                 cfg.ensemble_size,
                 action_spec.num_values,

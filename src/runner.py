@@ -10,6 +10,7 @@ import optax
 import haiku as hk
 from rltools.loggers import TFSummaryLogger
 from rltools import dmc_wrappers
+# jax.config.update('jax_platform_name', 'cpu')
 
 from src import ops
 from src.config import CoderConfig
@@ -105,8 +106,8 @@ class Runner:
         jax.clear_backends()
 
     def run_drq(self) -> None:
-        status = self.get_status()
         jax.clear_backends()
+        status = self.get_status()
 
         print('Interacting.')
         start = time.time()
@@ -136,6 +137,7 @@ class Runner:
             act = jax.jit(act)
             step = jax.jit(step)
 
+        def policy(obs): return np.asarray(act(state.params, obs))
         logger = TFSummaryLogger(self.exp_path(), 'drq', step_key='step')
         replay_path = self.exp_path(Runner.REPLAY)
 
@@ -153,7 +155,7 @@ class Runner:
         num_episodes = len(replay)
         scores = deque(maxlen=100)
         while True:
-            traj = ops.environment_loop(env, lambda obs: act(state.params, obs))
+            traj = ops.environment_loop(env, policy)
             num_episodes += 1
             scores.append(np.sum(traj['rewards']))
             replay.add(traj)
@@ -182,7 +184,6 @@ class Runner:
                 logger.write(metrics)
                 replay.save(replay_path)
                 self._write(jax.device_get(state), Runner.AGENT)
-        jax.clear_backends()
 
     def make_specs(self) -> dmc_wrappers.EnvironmentSpecs:
         return self._open(Runner.SPECS)

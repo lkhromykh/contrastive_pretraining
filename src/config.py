@@ -12,7 +12,7 @@ class CoderConfig(Config):
     # BYOL
     # https://github.com/deepmind/deepmind-research/blob/master/byol/configs/byol.py
     shift: int = 4
-    byol_batch_size: int = 32
+    byol_batch_size: int = 16
     byol_learning_rate: float = 1e-3
     byol_targets_update: float = 5e-3
     byol_steps: int = 1000
@@ -22,14 +22,14 @@ class CoderConfig(Config):
     gamma: float = .98
     lambda_: float = 1.
     disag_expl: float = 0.
-    utd: int = 10
+    utd: int = 2
     detach_encoder: bool = False
-    drq_batch_size: int = 32
+    drq_batch_size: int = 16
     demo_fraction: float = 0.5
     drq_learning_rate: float = 1e-3
     drq_targets_update: float = 1e-2
-    log_every: int = 10
-    pretrain_steps: int = 16
+    log_every: int = 2
+    pretrain_steps: int = 8
 
     # Architecture
     activation: str = 'elu'
@@ -39,7 +39,7 @@ class CoderConfig(Config):
     cnn_depths: Layers = (64, 64, 64, 64)
     cnn_kernels: Layers = (3, 3, 3, 3)
     cnn_strides: Layers = (2, 2, 2, 2)
-    critic_layers: Layers = (512,)
+    critic_layers: Layers = (64, 64)
     ensemble_size: int = 2
 
     # Train common
@@ -49,6 +49,6 @@ class CoderConfig(Config):
     weight_decay: float = 1e-5
 
     logdir: str = 'logdir'
-    task: str = 'particle'
+    task: str = 'ur_pick'
     time_limit: int = 16
     seed: int = 0

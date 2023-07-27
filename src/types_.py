@@ -7,7 +7,7 @@ import dm_env.specs
 
 from src.training_state import TrainingState
 
-IMG_KEY = 'image'
+IMG_KEY = 'realsense/image'
 Array = jnp.ndarray
 RNG = jax.random.PRNGKey
 
