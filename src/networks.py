@@ -57,11 +57,7 @@ class Encoder(hk.Module):
         
     def __call__(self, img: Array) -> Array:
         chex.assert_type(img, jnp.uint8)
-
-        prefix = img.shape[:-3]
-        reshape = (-1,) + img.shape[-3:]
-        x = jnp.reshape(img / 255., reshape)
-
+        x = img
         cnn_arch = zip(self.depths, self.kernels, self.strides)
         for depth, kernel, stride in cnn_arch:
             conv = hk.Conv2D(depth, kernel, stride,
@@ -70,12 +66,7 @@ class Encoder(hk.Module):
             x = conv(x)
             x = _get_norm(self.norm)(x)
             x = _get_act(self.act)(x)
-        x = jnp.reshape(x, prefix + (-1,))
-        emb = MLP((self.emb_dim, self.emb_dim),
-                  self.act,
-                  self.norm,
-                  name='projector')
-        return emb(x)
+        return jnp.reshape(x, img.shape[:-3] + (-1,))
 
 
 class DQN(hk.Module):
@@ -123,6 +114,7 @@ class CriticsEnsemble(hk.Module):
 class CoderNetworks(NamedTuple):
     init: Callable
     encoder: Callable
+    projector: Callable
     predictor: Callable
     critic: Callable
     act: Callable
@@ -143,9 +135,8 @@ class CoderNetworks(NamedTuple):
         @hk.without_apply_rng
         @hk.multi_transform
         def model():
-            edim = cfg.cnn_emb_dim
             encoder = Encoder(
-                edim,
+                cfg.emb_dim,
                 cfg.cnn_depths,
                 cfg.cnn_kernels,
                 cfg.cnn_strides,
@@ -153,8 +144,14 @@ class CoderNetworks(NamedTuple):
                 cfg.normalization,
                 name='encoder'
             )
+            projector = MLP(
+                (cfg.projector_hid_dim, cfg.emb_dim),
+                cfg.activation,
+                cfg.normalization,
+                name='projector'
+            )
             predictor = MLP(
-                (edim, edim),
+                (cfg.predictor_hid_dim, cfg.emb_dim),
                 cfg.activation,
                 cfg.normalization,
                 name='predictor'
@@ -176,6 +173,8 @@ class CoderNetworks(NamedTuple):
                             feat = jnp.atleast_1d(obs[key])
                         case 3, jnp.uint8:
                             feat = encoder(obs[key])
+                            if cfg.use_projection:
+                                feat = projector(feat)
                             if cfg.detach_encoder:
                                 feat = jax.lax.stop_gradient(feat)
                         case _:
@@ -192,14 +191,15 @@ class CoderNetworks(NamedTuple):
                 return score.argmax(-1)
 
             def init():
-                img = encoder(dummy_obs[types.IMG_KEY])
-                predictor(img)
+                x = encoder(dummy_obs[types.IMG_KEY])
+                x = projector(x)
+                predictor(x)
                 critic(dummy_obs)
 
-            return init, (encoder, predictor, critic, act)
+            return init, (encoder, projector, predictor, critic, act)
 
         def split_params(params: hk.Params) -> tuple[hk.Params, ...]:
-            modules = ('encoder', 'predictor', 'critic')
+            modules = ('encoder', 'projector', 'predictor', 'critic')
 
             def split_fn(module, n, v) -> int:
                 name = module.split('/')[0]
@@ -212,9 +212,10 @@ class CoderNetworks(NamedTuple):
         return cls(
             init=init,
             encoder=apply[0],
-            predictor=apply[1],
-            critic=apply[2],
-            act=apply[3],
+            projector=apply[1],
+            predictor=apply[2],
+            critic=apply[3],
+            act=apply[4],
             split_params=split_params,
         )
 

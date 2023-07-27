@@ -93,7 +93,7 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
         grad, metrics = grad_fn(params, target_params, subkey, *args)
 
         state = state.update(grad)
-        encoder_gn, _, critic_gn = map(
+        encoder_gn, _, _, critic_gn = map(
             optax.global_norm,
             networks.split_params(grad)
         )

@@ -153,7 +153,7 @@ class Runner:
 
         agent_ds = None
         num_episodes = len(replay)
-        scores = deque(maxlen=100)
+        scores = deque(maxlen=20)
         while True:
             traj = ops.environment_loop(env, policy)
             num_episodes += 1
@@ -179,7 +179,7 @@ class Runner:
             if num_episodes % c.log_every == 0:
                 metrics.update(step=num_episodes * c.time_limit,
                                time=time.time() - start,
-                               score_wma100=np.mean(scores),
+                               score_wma20=np.mean(scores),
                                grad_step=state.step)
                 logger.write(metrics)
                 replay.save(replay_path)

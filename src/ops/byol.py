@@ -25,9 +25,11 @@ def byol(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
 
         def byol_fn(v, vp):
             y = networks.encoder(params, v)
-            z = networks.predictor(params, y)
+            z = networks.projector(params, y)
+            q = networks.predictor(params, z)
             target_y = networks.encoder(target_params, vp)
-            return optax.cosine_distance(z, target_y), y
+            target_z = networks.projector(target_params, target_y)
+            return optax.cosine_distance(q, target_z), z
 
         loss, projection = byol_fn(view, view_prime)
         loss_prime, _ = byol_fn(view_prime, view)
