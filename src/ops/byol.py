@@ -27,13 +27,13 @@ def byol(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
             y = networks.encoder(params, v)
             z = networks.projector(params, y)
             q = networks.predictor(params, z)
-            target_y = networks.encoder(target_params, vp)
-            target_z = networks.projector(target_params, target_y)
-            return optax.cosine_distance(q, target_z), z
+            yp = networks.encoder(target_params, vp)
+            zp = networks.projector(target_params, yp)
+            return optax.cosine_distance(q, zp).mean(), y
 
-        loss, projection = byol_fn(view, view_prime)
+        loss, emb = byol_fn(view, view_prime)
         loss_prime, _ = byol_fn(view_prime, view)
-        return jnp.mean(loss + loss_prime), projection
+        return loss + loss_prime, emb
 
     @chex.assert_max_traces(1)
     def step(state: TrainingState,
@@ -46,11 +46,11 @@ def byol(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
         rng, subkey = jax.random.split(state.rng)
 
         grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
-        (loss, proj), grad = grad_fn(params, target_params, subkey, imgs)
+        (loss, emb), grad = grad_fn(params, target_params, subkey, imgs)
         state = state.update(grad)
         metrics = dict(loss=loss,
                        grad_norm=optax.global_norm(grad),
-                       proj_std=jnp.std(proj, 0).mean())
+                       emb_std=jnp.std(emb, 0).mean())
         return state.replace(rng=rng), metrics
 
     return step

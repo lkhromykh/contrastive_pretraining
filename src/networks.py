@@ -57,7 +57,7 @@ class Encoder(hk.Module):
         
     def __call__(self, img: Array) -> Array:
         chex.assert_type(img, jnp.uint8)
-        x = img
+        x = img / 255.
         cnn_arch = zip(self.depths, self.kernels, self.strides)
         for depth, kernel, stride in cnn_arch:
             conv = hk.Conv2D(depth, kernel, stride,
