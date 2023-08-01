@@ -57,7 +57,8 @@ class Encoder(hk.Module):
         
     def __call__(self, img: Array) -> Array:
         chex.assert_type(img, jnp.uint8)
-        x = img / 255.
+        prefix = img.shape[:-3]
+        x = jnp.reshape(img / 255., (-1,) + img.shape[-3:])
         cnn_arch = zip(self.depths, self.kernels, self.strides)
         for depth, kernel, stride in cnn_arch:
             conv = hk.Conv2D(depth, kernel, stride,
@@ -66,7 +67,7 @@ class Encoder(hk.Module):
             x = conv(x)
             x = _get_norm(self.norm)(x)
             x = _get_act(self.act)(x)
-        return jnp.reshape(x, img.shape[:-3] + (-1,))
+        return jnp.reshape(x, prefix + (-1,))
 
 
 class DQN(hk.Module):

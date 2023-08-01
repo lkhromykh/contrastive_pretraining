@@ -103,7 +103,6 @@ class Runner:
 
         state = jax.device_get(state)
         self._write(state, Runner.ENCODER)
-        jax.clear_backends()
 
     def run_drq(self) -> None:
         jax.clear_backends()
