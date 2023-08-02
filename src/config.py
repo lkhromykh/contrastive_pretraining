@@ -4,15 +4,13 @@ from rltools.config import Config
 
 Layers = tuple[int, ...]
 
-# TODO: LayerNorm, ensemble, symmetric sampling. 2302.02948
-
 
 @dataclasses.dataclass
 class CoderConfig(Config):
     # BYOL
     # https://github.com/deepmind/deepmind-research/blob/master/byol/configs/byol.py
-    shift: int = 4
-    byol_batch_size: int = 32
+    shift: int = 5
+    byol_batch_size: int = 16
     byol_learning_rate: float = 1e-3
     byol_targets_update: float = 5e-3
     byol_steps: int = 1000
@@ -25,8 +23,8 @@ class CoderConfig(Config):
     utd: int = 5
     use_projection: bool = False
     detach_encoder: bool = False
-    drq_batch_size: int = 32
-    demo_fraction: float = 0.5
+    drq_batch_size: int = 16
+    demo_fraction: float = 0.5  # 2302.02948
     drq_learning_rate: float = 1e-3
     drq_targets_update: float = 1e-2
     log_every: int = 1
@@ -36,20 +34,20 @@ class CoderConfig(Config):
     activation: str = 'elu'
     normalization: str = 'layer'
 
-    emb_dim: int = 64
-    projector_hid_dim: int = 512
-    predictor_hid_dim: int = 512
+    emb_dim: int = 48
+    projector_hid_dim: int = 256
+    predictor_hid_dim: int = 256
     cnn_depths: Layers = (32, 32, 32, 32)
     cnn_kernels: Layers = (3, 3, 3, 3)
-    cnn_strides: Layers = (2, 2, 2, 2)
-    critic_layers: Layers = (256, 256)
+    cnn_strides: Layers = (2, 1, 1, 1)
+    critic_layers: Layers = (64, 64, 64)
     ensemble_size: int = 2
 
     # Train common
     jit: bool = True
     replay_capacity: int = 10_000
     max_grad: float = 50.
-    weight_decay: float = 1e-5
+    weight_decay: float = 1e-6
 
     logdir: str = 'logdir'
     task: str = 'ur_pick'

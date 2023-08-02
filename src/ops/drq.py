@@ -61,7 +61,7 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
                                r_t, disc_t,
                                pi_t, cfg.lambda_)
         target_q_t = target_q_t.min(QS_DIM, keepdims=True)
-        critic_loss = jnp.square(q_t - target_q_t).mean()
+        critic_loss = jnp.square(q_t - jax.lax.stop_gradient(target_q_t)).mean()
 
         metrics = dict(
             critic_loss=critic_loss,

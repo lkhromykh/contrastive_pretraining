@@ -105,6 +105,11 @@ class Runner:
         self._write(state, Runner.ENCODER)
 
     def run_drq(self) -> None:
+        try:
+            import tensorflow as tf
+            tf.config.set_visible_devices([], 'GPU')
+        except:
+            pass
         jax.clear_backends()
         status = self.get_status()
 
@@ -133,10 +138,8 @@ class Runner:
         step = ops.drq(c, networks)
         act = networks.act
         if c.jit:
-            act = jax.jit(act)
             step = jax.jit(step)
 
-        def policy(obs): return np.asarray(act(state.params, obs))
         logger = TFSummaryLogger(self.exp_path(), 'drq', step_key='step')
         replay_path = self.exp_path(Runner.REPLAY)
 
@@ -154,6 +157,8 @@ class Runner:
         num_episodes = len(replay)
         scores = deque(maxlen=20)
         while True:
+            cpu_params = jax.device_put(state.params, jax.devices('cpu')[0])
+            def policy(obs): return np.asarray(act(cpu_params, obs))
             traj = ops.environment_loop(env, policy)
             num_episodes += 1
             scores.append(np.sum(traj['rewards']))
