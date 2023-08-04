@@ -121,6 +121,7 @@ class Runner:
 
         # Load the most recent weights if any.
         if status.agent_exists:
+            print('Loading existing agents weights.')
             state: TrainingState = self._open(Runner.AGENT)
         else:
             if status.encoder_exists:
