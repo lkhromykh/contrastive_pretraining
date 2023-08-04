@@ -16,12 +16,11 @@ def byol(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
     def loss_fn(params: hk.Params,
                 target_params: hk.Params,
                 rng: types.RNG,
-                img: jax.Array
+                obs: types.Observation
                 ) -> jax.Array:
-        chex.assert_type(img, jnp.uint8)
         rng1, rng2 = jax.random.split(rng)
-        view = augmentation_fn(rng1, img, cfg.shift)
-        view_prime = augmentation_fn(rng2, img, cfg.shift)
+        view = augmentation_fn(rng1, obs, cfg.shift)
+        view_prime = augmentation_fn(rng2, obs, cfg.shift)
 
         def byol_fn(v, vp):
             y = networks.encoder(params, v)
@@ -42,11 +41,11 @@ def byol(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
         print('Tracing BYOL step.')
         params = state.params
         target_params = state.target_params
-        imgs = batch['observations'][types.IMG_KEY]
+        observations = batch['observations']
         rng, subkey = jax.random.split(state.rng)
 
         grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
-        (loss, emb), grad = grad_fn(params, target_params, subkey, imgs)
+        (loss, emb), grad = grad_fn(params, target_params, subkey, observations)
         state = state.update(grad)
         metrics = dict(loss=loss,
                        grad_norm=optax.global_norm(grad),

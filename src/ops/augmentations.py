@@ -4,6 +4,8 @@ import chex
 import haiku as hk
 import numpy as np
 
+from src import types_ as types
+
 
 def random_crop(rng: chex.PRNGKey,
                 img: chex.Array,
@@ -38,4 +40,11 @@ def batched_random_crop(rng: chex.PRNGKey,
     return op(rngs, img, crop_size)
 
 
-augmentation_fn = batched_random_crop
+def augmentation_fn(rng: chex.PRNGKey,
+                    obs: types.Observation,
+                    crop_size: int
+                    ) -> types.Observation:
+    aobs = obs.copy()
+    img = aobs[types.IMG_KEY]
+    aobs[types.IMG_KEY] = batched_random_crop(rng, img, crop_size)
+    return aobs

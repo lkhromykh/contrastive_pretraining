@@ -35,10 +35,8 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
             return select(q_values, actions)
 
         k1, k2 = jax.random.split(rng)
-        target_obs_t = obs_t.copy()
-        img = obs_t[types.IMG_KEY]
-        target_obs_t[types.IMG_KEY] = augmentation_fn(k1, img, cfg.shift)
-        obs_t[types.IMG_KEY] = augmentation_fn(k2, img, cfg.shift)
+        target_obs_t = augmentation_fn(k1, obs_t, cfg.shift)
+        obs_t = augmentation_fn(k1, obs_t, cfg.shift)
         q_t = networks.critic(params, obs_t)
         a_dash_t = q_t.mean(QS_DIM).argmax(ACT_DIM)
         q_t = select_actions(q_t[:-1], a_t)

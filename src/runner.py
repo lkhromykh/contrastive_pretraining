@@ -158,7 +158,12 @@ class Runner:
         scores = deque(maxlen=20)
         while True:
             cpu_params = jax.device_put(state.params, jax.devices('cpu')[0])
-            def policy(obs): return np.asarray(act(cpu_params, obs))
+            if num_episodes < c.pretrain_steps:
+                def policy(_):
+                    act_dim = env.action_spec().num_values
+                    return np.random.randint(act_dim)
+            else:
+                def policy(obs): return np.asarray(act(cpu_params, obs))
             traj = ops.environment_loop(env, policy)
             num_episodes += 1
             scores.append(np.sum(traj['rewards']))

@@ -55,10 +55,18 @@ class Encoder(hk.Module):
         self.act = act
         self.norm = norm
         
-    def __call__(self, img: Array) -> Array:
+    def __call__(self, obs: types.Observation) -> Array:
+        img = obs[types.IMG_KEY]
         chex.assert_type(img, jnp.uint8)
-        prefix = img.shape[:-3]
-        x = jnp.reshape(img / 255., (-1,) + img.shape[-3:])
+        *prefix, h, w, c = img.shape
+        low_dim = [v for k, v in sorted(obs.items(), key=lambda i: i[0])
+                   if k != types.IMG_KEY]
+        low_dim = jnp.concatenate(low_dim, -1)
+        x = jnp.expand_dims(low_dim, (-2, -3))
+        x = jnp.tile(x, (h, w, 1))
+        x = jnp.concatenate([img / 255., x], -1)
+        x = jnp.reshape(x, (-1,) + x.shape[-3:])
+
         cnn_arch = zip(self.depths, self.kernels, self.strides)
         for depth, kernel, stride in cnn_arch:
             conv = hk.Conv2D(depth, kernel, stride,
@@ -67,7 +75,8 @@ class Encoder(hk.Module):
             x = conv(x)
             x = _get_norm(self.norm)(x)
             x = _get_act(self.act)(x)
-        return jnp.reshape(x, prefix + (-1,))
+        x = jnp.reshape(x, prefix + [-1])
+        return hk.Linear(self.emb_dim)(x)
 
 
 class DQN(hk.Module):
@@ -167,21 +176,11 @@ class CoderNetworks(NamedTuple):
             )
 
             def critic(obs: types.Observation) -> types.Array:
-                state = []
-                for key, spec in sorted(observation_spec.items()):
-                    match len(spec.shape), spec.dtype:
-                        case 0 | 1, _:
-                            feat = jnp.atleast_1d(obs[key])
-                        case 3, jnp.uint8:
-                            feat = encoder(obs[key])
-                            if cfg.use_projection:
-                                feat = projector(feat)
-                            if cfg.detach_encoder:
-                                feat = jax.lax.stop_gradient(feat)
-                        case _:
-                            raise NotImplementedError(key, spec)
-                    state.append(feat)
-                state = jnp.concatenate(state, -1)
+                state = encoder(obs)
+                if cfg.use_projection:
+                    state = projector(state)
+                if cfg.detach_encoder:
+                    state = jax.lax.stop_gradient(state)
                 return critic_(state)
 
             def act(obs: types.Observation) -> types.Action:
@@ -192,7 +191,7 @@ class CoderNetworks(NamedTuple):
                 return score.argmax(-1)
 
             def init():
-                x = encoder(dummy_obs[types.IMG_KEY])
+                x = encoder(dummy_obs)
                 x = projector(x)
                 predictor(x)
                 critic(dummy_obs)
