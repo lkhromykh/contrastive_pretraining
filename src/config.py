@@ -17,24 +17,22 @@ class CoderConfig(Config):
 
     # DrQ-like
     # https://github.com/facebookresearch/drqv2/blob/main/cfgs/config.yaml
-    gamma: float = .97
+    gamma: float = .96
     lambda_: float = 1.
-    disag_expl: float = 1.
+    disag_expl: float = 0.
     utd: int = 10
     use_projection: bool = False
     detach_encoder: bool = False
     drq_batch_size: int = 32
-    demo_fraction: float = 0.5  # 2302.02948
     drq_learning_rate: float = 1e-3
     drq_targets_update: float = 1e-2
     log_every: int = 1
-    pretrain_steps: int = 4
 
     # Architecture
     activation: str = 'elu'
     normalization: str = 'layer'
 
-    emb_dim: int = 48
+    emb_dim: int = 64
     projector_hid_dim: int = 256
     predictor_hid_dim: int = 256
     cnn_depths: Layers = (32, 32, 32, 32)

@@ -59,8 +59,7 @@ class Encoder(hk.Module):
         img = obs[types.IMG_KEY]
         chex.assert_type(img, jnp.uint8)
         *prefix, h, w, c = img.shape
-        low_dim = [v for k, v in sorted(obs.items(), key=lambda i: i[0])
-                   if k != types.IMG_KEY]
+        low_dim = [v for k, v in sorted(obs.items()) if k != types.IMG_KEY]
         low_dim = jnp.concatenate(low_dim, -1)
         x = jnp.expand_dims(low_dim, (-2, -3))
         x = jnp.tile(x, (h, w, 1))

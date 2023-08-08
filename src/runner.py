@@ -147,43 +147,23 @@ class Runner:
         # Poll for an existing replay buffers.
         if status.replay_exists:
             replay = self.make_replay_buffer(load=replay_path)
+        elif status.demo_exists:
+            replay = self.make_replay_buffer(load=self.exp_path(Runner.DEMO))
         else:
             replay = self.make_replay_buffer()
-        if status.demo_exists:
-            demo = self.make_replay_buffer(load=self.exp_path(Runner.DEMO))
-        else:
-            demo = replay
 
-        agent_ds = None
+        agent_ds = replay.as_tfdataset(c.drq_batch_size)
         num_episodes = len(replay)
         scores = deque(maxlen=20)
         while True:
             cpu_params = jax.device_put(state.params, jax.devices('cpu')[0])
-            if num_episodes < c.pretrain_steps:
-                def policy(_):
-                    act_dim = env.action_spec().num_values
-                    return np.random.randint(act_dim)
-            else:
-                def policy(obs): return np.asarray(act(cpu_params, obs))
+            def policy(obs): return np.asarray(act(cpu_params, obs))
             traj = ops.environment_loop(env, policy)
             num_episodes += 1
             scores.append(np.sum(traj['rewards']))
             replay.add(traj)
-            if num_episodes < c.pretrain_steps:
-                continue
-            if agent_ds is None:
-                demo_batch = int(c.demo_fraction * c.drq_batch_size)
-                agent_batch = c.drq_batch_size - demo_batch
-                agent_ds = replay.as_tfdataset(agent_batch)
-                demo_ds = demo.as_tfdataset(demo_batch)
-                print('Training.')
             for _ in range(c.utd):
-                agent_batch = next(agent_ds)
-                demo_batch = next(demo_ds)
-                batch = jax.tree_util.tree_map(
-                    lambda t1, t2: np.concatenate([t1, t2]),
-                    agent_batch, demo_batch
-                )
+                batch = next(agent_ds)
                 batch = jax.device_put(batch)
                 state, metrics = step(state, batch)
             if num_episodes % c.log_every == 0:
