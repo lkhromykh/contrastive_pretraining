@@ -34,20 +34,15 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
             select = hk.BatchApply(jax.vmap(lambda q, a: q[a]))
             return select(q_values, actions)
 
-        k1, k2 = jax.random.split(rng)
-        target_obs_t = augmentation_fn(k1, obs_t, cfg.shift)
-        obs_t = augmentation_fn(k1, obs_t, cfg.shift)
+        del rng
         q_t = networks.critic(params, obs_t)
         a_dash_t = q_t.mean(QS_DIM).argmax(ACT_DIM)
         q_t = select_actions(q_t[:-1], a_t)
-        target_q_t = networks.critic(target_params, target_obs_t)
-        adv_t = target_q_t.max(ACT_DIM) - target_q_t.min(ACT_DIM)  # debug
-        q_std = target_q_t.std(QS_DIM)  # debug
+        target_q_t = networks.critic(target_params, obs_t)
         pi_t = (a_t == a_dash_t[:-1]).astype(q_t.dtype)
         v_tp1 = select_actions(target_q_t, a_dash_t)[1:]
         target_q_t = select_actions(target_q_t[:-1], a_t)
         QS_DIM -= 1  # after ACT_DIM reduction
-        sampled_q_std = target_q_t.std(QS_DIM)  # debug
 
         in_axes = 5 * (BATCH_DIM,) + (None,)
         target_fn = jax.vmap(tree_backup, in_axes=in_axes, out_axes=BATCH_DIM)
@@ -66,9 +61,6 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
             reward=r_t,
             pi=pi_t,
             value=v_tp1,
-            advantage=adv_t,
-            q_ensemble_std=q_std,
-            q_ensemble_std_sampled=sampled_q_std
         )
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         return critic_loss, metrics
