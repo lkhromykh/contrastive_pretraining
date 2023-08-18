@@ -60,6 +60,21 @@ def test2():
     return env_, policy_
 
 
+def task_sampler():
+    from itertools import product
+    import random
+    orientations = (
+        'N', 'NE', 'E', 'SE',
+        'S', 'SW', 'W', 'NW'
+    )
+    toys = (
+        'santa', 'pink', 'red', 'white'
+    )
+    variations = product(orientations, toys)
+    while True:
+        yield random.choice(variations)
+
+
 if __name__ == '__main__':
     if not os.path.exists(DIR):
         os.makedirs(DIR)
@@ -68,7 +83,10 @@ if __name__ == '__main__':
     idx = 0
     preexist = len(os.listdir(DIR))
     num_episodes = TOTAL_DEMOS - preexist
+    task_gen = task_sampler()
     while idx < num_episodes:
+        print(next(task_gen))
+        input()
         tr = environment_loop(env, policy)
         print('Save this? [y/N]')
         if TEST or input() == 'y':
