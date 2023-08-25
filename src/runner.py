@@ -10,7 +10,7 @@ import optax
 import haiku as hk
 from rltools.loggers import TFSummaryLogger
 from rltools import dmc_wrappers
-# jax.config.update('jax_platform_name', 'cpu')
+jax.config.update('jax_platform_name', 'cpu')
 
 from src import ops
 from src.config import CoderConfig
@@ -101,6 +101,38 @@ class Runner:
             metrics.update(step=t, time=time.time() - start)
             logger.write(metrics)
 
+        state = jax.device_get(state)
+        self._write(state, Runner.ENCODER)
+
+    def run_supervised(self) -> None:
+        status = self.get_status()
+        if status.encoder_exists:
+            print('Encoder exists.')
+            return
+        assert status.specs_exists, 'Missing environment specs.'
+
+        c = self.cfg
+        start = time.time()
+        ds = ops.load_dataset(c.byol_batch_size * c.time_limit)
+        nets = self.make_networks()
+        params = nets.init(next(self._rngseq))
+        optim = optax.adamw(c.byol_learning_rate, weight_decay=c.weight_decay)
+        optim = optax.chain(optax.clip_by_global_norm(c.max_grad), optim)
+        state = TrainingState.init(next(self._rngseq),
+                                   params,
+                                   optim,
+                                   c.byol_targets_update
+                                   )
+        step = ops.supervised(c, nets)
+        if c.jit:
+            step = jax.jit(step)
+        logger = TFSummaryLogger(self.exp_path(), 'supervised', 'step')
+
+        for t in range(c.byol_steps):
+            batch = jax.device_put(next(ds))
+            state, metrics = step(state, batch)
+            metrics.update(step=t, time=time.time() - start)
+            logger.write(metrics)
         state = jax.device_get(state)
         self._write(state, Runner.ENCODER)
 

@@ -8,7 +8,6 @@ import optax
 from src.config import CoderConfig
 from src.networks import CoderNetworks
 from src.training_state import TrainingState
-from src.ops.augmentations import augmentation_fn
 from src.ops.tb_lambda import tree_backup
 from src import types_ as types
 
@@ -54,6 +53,7 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
                                r_t, disc_t,
                                pi_t, cfg.lambda_)
         target_q_t = target_q_t.min(QS_DIM, keepdims=True)
+        # stop_grad is not required but presents here for clarity.
         critic_loss = jnp.square(q_t - jax.lax.stop_gradient(target_q_t)).mean()
 
         metrics = dict(

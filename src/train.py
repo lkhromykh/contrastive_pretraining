@@ -7,9 +7,12 @@ from src.runner import Runner
 
 def main(config):
     runner = Runner(config)
-    runner.run_replay_collection()
-    runner.run_byol()
-    runner.run_drq()
+    # runner.run_replay_collection()
+    if config.supervised:
+        runner.run_supervised()
+    else:
+        runner.run_byol()
+    # runner.run_drq()
 
 
 if __name__ == '__main__':

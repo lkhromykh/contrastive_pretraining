@@ -36,10 +36,9 @@ class MLP(hk.Module):
         return x
 
 
-class Encoder(hk.Module):
+class CNN(hk.Module):
 
     def __init__(self,
-                 emb_dim: int,
                  depths: types.Layers,
                  kernels: types.Layers,
                  strides: types.Layers,
@@ -47,25 +46,17 @@ class Encoder(hk.Module):
                  norm: str,
                  name: str | None = None
                  ) -> None:
-        super().__init__(name)
-        self.emb_dim = emb_dim
+        super().__init__(name=name)
         self.depths = depths
         self.kernels = kernels
         self.strides = strides
         self.act = act
         self.norm = norm
-        
-    def __call__(self, obs: types.Observation) -> Array:
-        img = obs[types.IMG_KEY]
-        chex.assert_type(img, jnp.uint8)
-        *prefix, h, w, c = img.shape
-        low_dim = [v for k, v in sorted(obs.items()) if k != types.IMG_KEY]
-        low_dim = jnp.concatenate(low_dim, -1)
-        x = jnp.expand_dims(low_dim, (-2, -3))
-        x = jnp.tile(x, (h, w, 1))
-        x = jnp.concatenate([img / 255., x], -1)
-        x = jnp.reshape(x, (-1,) + x.shape[-3:])
 
+    def __call__(self, x: Array) -> Array:
+        chex.assert_type(x, float)
+        prefix = x.shape[:-3]
+        x = jnp.reshape(x, (-1,) + x.shape[-3:])
         cnn_arch = zip(self.depths, self.kernels, self.strides)
         for depth, kernel, stride in cnn_arch:
             conv = hk.Conv2D(depth, kernel, stride,
@@ -74,8 +65,45 @@ class Encoder(hk.Module):
             x = conv(x)
             x = _get_norm(self.norm)(x)
             x = _get_act(self.act)(x)
-        x = jnp.reshape(x, prefix + [-1])
-        return hk.Linear(self.emb_dim)(x)
+        return x.reshape(prefix + (-1,))
+
+
+class Encoder(hk.Module):
+
+    def __init__(self,
+                 emb_dim: int,
+                 backbone: hk.Module,
+                 early_fusion: bool = True,
+                 name: str | None = None
+                 ) -> None:
+        super().__init__(name)
+        self.emb_dim = emb_dim
+        self.backbone = backbone
+        self.early_fusion = early_fusion
+
+    def __call__(self, obs: types.Observation) -> Array:
+        img = obs[types.IMG_KEY]
+        chex.assert_type(img, jnp.uint8)
+        img = img.astype(jnp.float32) / 255.
+        low_dim = [v for k, v in sorted(obs.items()) if k != types.IMG_KEY]
+        low_dim = jnp.concatenate(low_dim, -1)
+
+        if self.early_fusion:
+            emb = self._early(img, low_dim)
+        else:
+            emb = self._late(img, low_dim)
+        return hk.Linear(self.emb_dim)(emb)
+
+    def _early(self, img: Array, low_dim: Array) -> Array:
+        h, w = img.shape[-3:-1]
+        x = jnp.expand_dims(low_dim, (-2, -3))
+        x = jnp.tile(x, (h, w, 1))
+        x = jnp.concatenate([img, x], -1)
+        return self.backbone(x)
+
+    def _late(self, img: Array, low_dim: Array) -> Array:
+        emb = self.backbone(img)
+        return jnp.concatenate([emb, low_dim], -1)
 
 
 class DQN(hk.Module):
@@ -122,6 +150,7 @@ class CriticsEnsemble(hk.Module):
 
 class CoderNetworks(NamedTuple):
     init: Callable
+    backbone: Callable
     encoder: Callable
     projector: Callable
     predictor: Callable
@@ -144,17 +173,26 @@ class CoderNetworks(NamedTuple):
         @hk.without_apply_rng
         @hk.multi_transform
         def model():
-            encoder = Encoder(
-                cfg.emb_dim,
+            cnn = CNN(
                 cfg.cnn_depths,
                 cfg.cnn_kernels,
                 cfg.cnn_strides,
                 cfg.activation,
                 cfg.normalization,
+                name='cnn'
+            )
+            encoder = Encoder(
+                cfg.emb_dim,
+                cnn,
+                not cfg.supervised,
                 name='encoder'
             )
+            if cfg.supervised:
+                layers = (1000,)  # num_classes in a dataset
+            else:
+                layers = (cfg.projector_hid_dim, cfg.emb_dim)
             projector = MLP(
-                (cfg.projector_hid_dim, cfg.emb_dim),
+                layers,
                 cfg.activation,
                 cfg.normalization,
                 name='projector'
@@ -176,18 +214,13 @@ class CoderNetworks(NamedTuple):
 
             def critic(obs: types.Observation) -> types.Array:
                 state = encoder(obs)
-                if cfg.use_projection:
-                    state = projector(state)
                 if cfg.detach_encoder:
                     state = jax.lax.stop_gradient(state)
                 return critic_(state)
 
             def act(obs: types.Observation) -> types.Action:
-                q_values = critic(obs)
-                q_mean = q_values.mean(-1)
-                q_std = q_values.std(-1)
-                score = q_mean + cfg.disag_expl * q_std
-                return score.argmax(-1)
+                q_values = critic(obs).mean(-1)
+                return q_values.argmax(-1)
 
             def init():
                 x = encoder(dummy_obs)
@@ -195,7 +228,7 @@ class CoderNetworks(NamedTuple):
                 predictor(x)
                 critic(dummy_obs)
 
-            return init, (encoder, projector, predictor, critic, act)
+            return init, (cnn, encoder, projector, predictor, critic, act)
 
         def split_params(params: hk.Params) -> tuple[hk.Params, ...]:
             modules = ('encoder', 'projector', 'predictor', 'critic')
@@ -210,11 +243,12 @@ class CoderNetworks(NamedTuple):
         init, apply = model
         return cls(
             init=init,
-            encoder=apply[0],
-            projector=apply[1],
-            predictor=apply[2],
-            critic=apply[3],
-            act=apply[4],
+            backbone=apply[0],
+            encoder=apply[1],
+            projector=apply[2],
+            predictor=apply[3],
+            critic=apply[4],
+            act=apply[5],
             split_params=split_params,
         )
 

@@ -14,14 +14,15 @@ class CoderConfig(Config):
     byol_learning_rate: float = 1e-3
     byol_targets_update: float = 5e-3
     byol_steps: int = 1000
+    # Or use supervised pretraining from the ImageNet instead.
+    # Training hparams are shared with BYOL's one.
+    supervised: bool = True
 
     # DrQ-like
     # https://github.com/facebookresearch/drqv2/blob/main/cfgs/config.yaml
     gamma: float = .96
     lambda_: float = 1.
-    disag_expl: float = 0.
     utd: int = 10
-    use_projection: bool = False
     detach_encoder: bool = False
     drq_batch_size: int = 32
     demo_fraction: float = 0.5  # 2302.02948
