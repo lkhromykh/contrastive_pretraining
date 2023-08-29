@@ -17,6 +17,7 @@ class CoderConfig(Config):
     # Or use supervised pretraining from the ImageNet instead.
     # Training hparams are shared with BYOL's one.
     supervised: bool = True
+    mixup_lambda: float = .3
 
     # DrQ-like
     # https://github.com/facebookresearch/drqv2/blob/main/cfgs/config.yaml

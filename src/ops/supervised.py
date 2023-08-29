@@ -19,11 +19,11 @@ def supervised(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
                 img: chex.Array,
                 label: chex.Array
                 ) -> jax.Array:
-        chex.assert_type([img, label], [jnp.uint8, int])
+        chex.assert_type([img, label], [jnp.uint8, {float, int}])
         view = augmentation_fn(rng, {types.IMG_KEY: img}, cfg.shift)
         emb = networks.backbone(params, view[types.IMG_KEY] / 255.)
         logits = networks.projector(params, emb)
-        loss = optax.softmax_cross_entropy_with_integer_labels(logits, label).mean()
+        loss = optax.softmax_cross_entropy(logits, label).mean()
         acc = jnp.mean(logits.argmax(-1) == label)
         return loss, dict(acc=acc, loss=loss)
 
