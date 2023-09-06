@@ -32,6 +32,7 @@ def load_dataset(split: str,
         img = tf.cast(img, tf.uint8)
         label = tf.one_hot(label, 1000)
         return img, label
+    ds = ds.repeat()
     ds = ds.shuffle(_N_SHUFFLE)
     ds = ds.map(resize)
     ds = ds.batch(batch_size, drop_remainder=True)
