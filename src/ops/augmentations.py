@@ -44,6 +44,9 @@ def augmentation_fn(rng: chex.PRNGKey,
                     obs: types.Observation,
                     crop_size: int
                     ) -> types.Observation:
+    # inplace update differs for jit'ed and plain functions.
+    # so here explicit copy is used.
+    # egocentric view is not specifically translation invariant
     aobs = obs.copy()
     img = aobs[types.IMG_KEY]
     aobs[types.IMG_KEY] = batched_random_crop(rng, img, crop_size)

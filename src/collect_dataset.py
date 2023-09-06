@@ -7,7 +7,7 @@ from rltools import dmc_wrappers
 
 DIR = 'raw_demos'
 TEST = False
-TOTAL_DEMOS = 10
+TOTAL_DEMOS = 50
 
 
 def environment_loop(env, policy):
@@ -68,9 +68,9 @@ def task_sampler():
         'S', 'SW', 'W', 'NW'
     )
     toys = (
-        'santa', 'pink', 'red', 'white'
+        'santa', 'sponge', 'pink', 'red', 'white'
     )
-    variations = product(orientations, toys)
+    variations = list(product(orientations, toys))
     while True:
         yield random.choice(variations)
 

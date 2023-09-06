@@ -9,15 +9,15 @@ Layers = tuple[int, ...]
 class CoderConfig(Config):
     # BYOL
     # https://github.com/deepmind/deepmind-research/blob/master/byol/configs/byol.py
-    shift: int = 5
-    byol_batch_size: int = 32
+    shift: int = 4
+    byol_batch_size: int = 256
     byol_learning_rate: float = 1e-3
     byol_targets_update: float = 5e-3
-    byol_steps: int = 1000
+    byol_steps: int = 10000
     # Or use supervised pretraining from the ImageNet instead.
     # Training hparams are shared with BYOL's one.
     supervised: bool = True
-    mixup_lambda: float = .3
+    mixup_lambda: float | None = None
 
     # DrQ-like
     # https://github.com/facebookresearch/drqv2/blob/main/cfgs/config.yaml
@@ -41,7 +41,7 @@ class CoderConfig(Config):
     predictor_hid_dim: int = 256
     cnn_depths: Layers = (32, 32, 32, 32)
     cnn_kernels: Layers = (3, 3, 3, 3)
-    cnn_strides: Layers = (2, 2, 2, 2)
+    cnn_strides: Layers = (2, 2, 1, 1)
     critic_layers: Layers = (512,)
     ensemble_size: int = 3
 
@@ -49,9 +49,9 @@ class CoderConfig(Config):
     jit: bool = True
     replay_capacity: int = 500
     max_grad: float = 50.
-    weight_decay: float = 0.
+    weight_decay: float = 1e-6
 
     logdir: str = 'logdir'
     task: str = 'ur_pick'
     time_limit: int = 16
-    seed: int = 0
+    seed: int = 1

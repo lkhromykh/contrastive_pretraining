@@ -92,7 +92,9 @@ class Encoder(hk.Module):
             emb = self._early(img, low_dim)
         else:
             emb = self._late(img, low_dim)
-        return hk.Linear(self.emb_dim)(emb)
+        emb = hk.Linear(self.emb_dim)(emb)
+        emb = _get_norm('layer')(emb)
+        return jnp.tanh(emb)
 
     def _early(self, img: Array, low_dim: Array) -> Array:
         h, w = img.shape[-3:-1]
@@ -188,7 +190,7 @@ class CoderNetworks(NamedTuple):
                 name='encoder'
             )
             if cfg.supervised:
-                layers = (1000,)  # num_classes in a dataset
+                layers = (1000,)  # num_classes in the dataset
             else:
                 layers = (cfg.projector_hid_dim, cfg.emb_dim)
             projector = MLP(

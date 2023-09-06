@@ -81,7 +81,7 @@ class Runner:
         start = time.time()
         c = self.cfg
         replay = self.make_replay_buffer(load=self.exp_path(Runner.DEMO))
-        ds = replay.as_tfdataset(c.byol_batch_size)
+        ds = replay.as_tfdataset(c.byol_batch_size // c.time_limit)
         networks = self.make_networks()
         params = networks.init(next(self._rngseq))
         optim = optax.adamw(c.byol_learning_rate, weight_decay=c.weight_decay)
@@ -114,7 +114,7 @@ class Runner:
         c = self.cfg
         start = time.time()
         ds = ops.load_dataset('train',
-                              batch_size=c.byol_batch_size * c.time_limit,
+                              batch_size=c.byol_batch_size // c.time_limit,
                               img_size=(128, 128),
                               mixup_lambda=c.mixup_lambda)
         nets = self.make_networks()
