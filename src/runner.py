@@ -115,7 +115,7 @@ class Runner:
         start = time.time()
         ds = ops.load_dataset('train',
                               batch_size=c.byol_batch_size // c.time_limit,
-                              img_size=(128, 128),
+                              img_size=(64, 64),
                               mixup_lambda=c.mixup_lambda)
         nets = self.make_networks()
         params = nets.init(next(self._rngseq))

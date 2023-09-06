@@ -1,5 +1,5 @@
 import collections.abc
-from typing import TypedDict, Callable
+from typing import Any, Callable, TypedDict
 
 import jax
 import jax.numpy as jnp
@@ -26,5 +26,5 @@ class Trajectory(TypedDict):
 
 
 Layers = collections.abc.Sequence[int]
-Metrics = collections.abc.MutableMapping[str, jnp.number]
+Metrics = collections.abc.MutableMapping[str, Any]
 StepFn = Callable[[TrainingState, Trajectory], tuple[TrainingState, Metrics]]

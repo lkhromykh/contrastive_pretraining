@@ -12,26 +12,30 @@ from src.ops.augmentations import augmentation_fn
 
 
 def supervised(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
-    assert cfg.supervised, 'WrongLogic'
+    assert cfg.supervised, 'LogicError'
 
     def loss_fn(params: hk.Params,
                 rng: types.RNG,
                 img: chex.Array,
                 label: chex.Array
-                ) -> jax.Array:
-        chex.assert_type([img, label], [jnp.uint8, {float, int}])
+                ) -> tuple[jax.Array, types.Metrics]:
+        # chex.assert_type([img, label], [jnp.uint8, {float, int}])
         view = augmentation_fn(rng, {types.IMG_KEY: img}, cfg.shift)
         emb = networks.backbone(params, view[types.IMG_KEY] / 255.)
         logits = networks.projector(params, emb)
+        _, top1 = jax.lax.top_k(logits, 1)
+        _, top5 = jax.lax.top_k(logits, 5)
+        ilabel = label.argmax(-1, keepdims=True)
+        top1 = jnp.any(top1 == ilabel, -1).mean()
+        top5 = jnp.any(top5 == ilabel, -1).mean()
         loss = optax.softmax_cross_entropy(logits, label).mean()
-        acc = jnp.mean(logits.argmax(-1) == label)
-        return loss, dict(acc=acc, loss=loss)
+        return loss, dict(loss=loss, top1=top1, top5=top5)
 
     @chex.assert_max_traces(1)
     def step(state: TrainingState,
              batch: tuple[chex.Array, chex.Array]
              ) -> tuple[TrainingState, types.Metrics]:
-        print('Tracing classifier step.')
+        print('Tracing classification step.')
         params = state.params
         rng, subkey = jax.random.split(state.rng)
         images, labels = batch

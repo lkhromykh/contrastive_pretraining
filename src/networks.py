@@ -226,7 +226,12 @@ class CoderNetworks(NamedTuple):
 
             def init():
                 x = encoder(dummy_obs)
-                x = projector(x)
+                if cfg.supervised:
+                    img = dummy_obs[types.IMG_KEY] / 255.
+                    emb = cnn(img)
+                    projector(emb)
+                else:
+                    projector(x)
                 predictor(x)
                 critic(dummy_obs)
 

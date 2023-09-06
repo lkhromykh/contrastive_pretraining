@@ -21,7 +21,7 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
                 a_t: types.Action,
                 r_t: types.Array,
                 disc_t: types.Array
-                ) -> jax.Array:
+                ) -> tuple[jax.Array, types.Metrics]:
         chex.assert_tree_shape_prefix(
             obs_t, (cfg.time_limit + 1, cfg.drq_batch_size))
         chex.assert_shape(

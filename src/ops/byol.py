@@ -17,7 +17,7 @@ def byol(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
                 target_params: hk.Params,
                 rng: types.RNG,
                 obs: types.Observation
-                ) -> jax.Array:
+                ) -> tuple[jax.Array, types.Metrics]:
         rng1, rng2 = jax.random.split(rng)
         view = augmentation_fn(rng1, obs, cfg.shift)
         view_prime = augmentation_fn(rng2, obs, cfg.shift)
@@ -32,7 +32,8 @@ def byol(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
 
         loss, emb = byol_fn(view, view_prime)
         loss_prime, _ = byol_fn(view_prime, view)
-        return loss + loss_prime, emb
+        loss = loss + loss_prime
+        return loss, dict(loss=loss, emb_std=emb.std(0).mean())
 
     @chex.assert_max_traces(1)
     def step(state: TrainingState,
@@ -45,11 +46,9 @@ def byol(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
         rng, subkey = jax.random.split(state.rng)
 
         grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
-        (loss, emb), grad = grad_fn(params, target_params, subkey, observations)
+        grad, metrics = grad_fn(params, target_params, subkey, observations)
         state = state.update(grad)
-        metrics = dict(loss=loss,
-                       grad_norm=optax.global_norm(grad),
-                       emb_std=jnp.std(emb, 0).mean())
+        metrics.update(grad_norm=optax.global_norm(grad))
         return state.replace(rng=rng), metrics
 
     return step

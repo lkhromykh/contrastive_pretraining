@@ -23,19 +23,19 @@ def load_dataset(split: str,
                  *,
                  batch_size: int,
                  img_size: tuple[int, int],
-                 mixup_lambda: float | None = None
+                 mixup_lambda: float = 0.
                  ) -> tf.data.Dataset:
-    ds, ds_info = tfds.load('imagenet2012', split=split,
-                            as_supervised=True, with_info=True)
+    ds = tfds.load('imagenet2012', split=split, as_supervised=True)
 
     def resize(img, label):
-        img = tf.image.resize(img, img_size)
-        label = tf.one_hot(label, ds_info.splits[split].num_classes)
+        img = tf.image.resize(img, img_size, tf.image.ResizeMethod.BICUBIC)
+        img = tf.cast(img, tf.uint8)
+        label = tf.one_hot(label, 1000)
         return img, label
     ds = ds.shuffle(_N_SHUFFLE)
-    ds = ds.batch(batch_size, drop_remainder=True)
     ds = ds.map(resize)
-    if mixup_lambda is not None:
+    ds = ds.batch(batch_size, drop_remainder=True)
+    if mixup_lambda > 0.:
         ds = _mixup(ds, mixup_lambda)
     ds = ds.prefetch(tf.data.AUTOTUNE)
     return ds.as_numpy_iterator()
