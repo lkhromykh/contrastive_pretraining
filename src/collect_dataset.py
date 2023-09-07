@@ -7,7 +7,7 @@ from rltools import dmc_wrappers
 
 DIR = 'raw_demos'
 TEST = False
-TOTAL_DEMOS = 50
+TOTAL_DEMOS = 100
 
 
 def environment_loop(env, policy):
@@ -48,7 +48,7 @@ def train():
     }
     address = ('', 5555)
     env_ = RemoteEnvClient(address)
-    gamepad = Gamepad(mapping, '/dev/input/event20')
+    gamepad = Gamepad(mapping, device='/dev/input/event7')
     def policy_(_): return gamepad.read_input()
     return env_, policy_
 
@@ -65,14 +65,13 @@ if __name__ == '__main__':
         os.makedirs(DIR)
     env, policy = test2() if TEST else train()
     env = dmc_wrappers.base.Wrapper(env)
-    idx = 0
-    preexist = len(os.listdir(DIR))
-    num_episodes = TOTAL_DEMOS - preexist
-    while idx < num_episodes:
+    idx = len(os.listdir(DIR))
+    while idx < TOTAL_DEMOS:
+        print('Episode: ', idx)
         tr = environment_loop(env, policy)
         print('Save this? [y/N]')
         if TEST or input() == 'y':
-            path = os.path.join(DIR, f'traj{preexist+idx}')
+            path = os.path.join(DIR, f'traj{idx}')
             with open(path, 'wb') as f:
                 pickle.dump(tr, f)
             idx += 1
