@@ -10,7 +10,7 @@ import optax
 import haiku as hk
 from rltools.loggers import TFSummaryLogger
 from rltools import dmc_wrappers
-# jax.config.update('jax_platform_name', 'cpu')
+jax.config.update('jax_platform_name', 'cpu')
 
 from src import ops
 from src.config import CoderConfig

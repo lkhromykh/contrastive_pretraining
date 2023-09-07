@@ -13,7 +13,7 @@ class CoderConfig(Config):
     byol_batch_size: int = 256
     byol_learning_rate: float = 1e-3
     byol_targets_update: float = 5e-3
-    byol_steps: int = 2000000
+    byol_steps: int = 10000
     # Or use supervised pretraining from the ImageNet instead.
     # Training hparams are shared with BYOL's one.
     supervised: bool = True
