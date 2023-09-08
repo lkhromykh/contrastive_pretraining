@@ -16,14 +16,14 @@ class CoderConfig(Config):
     byol_steps: int = 10000
     # Or use supervised pretraining from the ImageNet instead.
     # Training hparams are shared with BYOL's one.
-    supervised: bool = True
+    supervised: bool = False
     mixup_lambda: float = 0.0
 
     # DrQ-like
     # https://github.com/facebookresearch/drqv2/blob/main/cfgs/config.yaml
     gamma: float = .96
     lambda_: float = 1.
-    utd: int = 10
+    utd: int = 15
     detach_encoder: bool = False
     drq_batch_size: int = 32
     demo_fraction: float = 0.5  # 2302.02948
@@ -48,7 +48,7 @@ class CoderConfig(Config):
     # Train common
     jit: bool = True
     replay_capacity: int = 500
-    max_grad: float = 50.
+    max_grad: float = 10.
     weight_decay: float = 1e-6
 
     logdir: str = 'logdir'

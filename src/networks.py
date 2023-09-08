@@ -181,7 +181,7 @@ class CoderNetworks(NamedTuple):
                 cfg.cnn_strides,
                 cfg.activation,
                 cfg.normalization,
-                name='cnn'
+                name='backbone'
             )
             encoder = Encoder(
                 cfg.emb_dim,
@@ -237,7 +237,7 @@ class CoderNetworks(NamedTuple):
             return init, (cnn, encoder, projector, predictor, critic, act)
 
         def split_params(params: hk.Params) -> tuple[hk.Params, ...]:
-            modules = ('encoder', 'projector', 'predictor', 'critic')
+            modules = ('backbone', 'encoder', 'projector', 'predictor', 'critic')
 
             def split_fn(module, n, v) -> int:
                 name = module.split('/')[0]
