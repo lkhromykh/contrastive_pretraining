@@ -45,7 +45,7 @@ def byol(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
         observations = batch['observations']
         rng, subkey = jax.random.split(state.rng)
 
-        grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+        grad_fn = jax.grad(loss_fn, has_aux=True)
         grad, metrics = grad_fn(params, target_params, subkey, observations)
         state = state.update(grad)
         metrics.update(grad_norm=optax.global_norm(grad))

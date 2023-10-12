@@ -23,7 +23,7 @@ class CoderConfig(Config):
     # https://github.com/facebookresearch/drqv2/blob/main/cfgs/config.yaml
     gamma: float = .96
     lambda_: float = 1.
-    utd: int = 15
+    utd: int = 10
     detach_encoder: bool = False
     drq_batch_size: int = 32
     demo_fraction: float = 0.5  # 2302.02948

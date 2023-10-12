@@ -83,12 +83,11 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
         grad, metrics = grad_fn(params, target_params, subkey, *args)
 
         state = state.update(grad)
-        backbone_gn, _, _, _, critic_gn = map(
+        _, encoder_gn, _, _, critic_gn = map(
             optax.global_norm,
             networks.split_params(grad)
         )
-        metrics.update(backbone_grad_norm=backbone_gn,
-                       critic_grad_norm=critic_gn)
+        metrics.update(encoder_grad_norm=encoder_gn, critic_grad_norm=critic_gn)
         return state.replace(rng=rng), metrics
 
     return step
