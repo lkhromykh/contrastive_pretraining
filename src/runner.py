@@ -262,7 +262,7 @@ class Runner:
                 env = ParticleEnv(time_limit=.05 * (self.cfg.time_limit - 1))
             case 'ur', _:
                 from ur_env.remote import RemoteEnvClient
-                address = None
+                address = ('192.168.1.136', 5555)
                 env = RemoteEnvClient(address)
             case _:
                 raise ValueError(self.cfg.task)
