@@ -48,7 +48,7 @@ class CoderConfig(Config):
     # Train common
     jit: bool = True
     replay_capacity: int = 500
-    max_grad: float = 10.
+    max_grad: float = 20.
     weight_decay: float = 1e-6
 
     logdir: str = 'logdir'

@@ -2,14 +2,12 @@ import collections.abc
 from typing import Any, Callable, TypedDict
 
 import jax
-import jax.numpy as jnp
 import dm_env.specs
 
 from src.training_state import TrainingState
 
 IMG_KEY = 'realsense/image'
-Array = jnp.ndarray
-RNG = jax.random.PRNGKey
+Array = RNG = jax.Array
 
 Action = Array
 ActionSpec = dm_env.specs.DiscreteArray
