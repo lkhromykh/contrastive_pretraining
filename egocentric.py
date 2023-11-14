@@ -148,6 +148,7 @@ class PickAndLift(Task):
         return specs.DiscreteArray(len(DiscreteAction), dtype=np.int32)
 
     def before_step(self, scene, action, random_state):
+        print(action)
         pos = scene.arm.rtde_receive.getActualTCPPose()
         xyz, rotvec = np.split(np.asarray(pos), 2)
         rmat = Rotation.from_rotvec(rotvec).as_matrix()
@@ -181,7 +182,8 @@ gripper = nodes.DiscreteGripper(HOST, force=5)
 realsense = nodes.RealSense()
 scene_ = Scene(arm=arm, gripper=gripper, realsense=realsense)
 
-INIT_Q = [-0.028, -1.42, 2.01, -2.158, 4.717, -1.5943401495562952]
+INIT_Q = [-0.350, -1.452, 2.046, -2.167, 4.712, 0.03]
+#INIT_Q = [-0.028052632008687794, -1.4222227197936554, 2.010111157094137, -2.1577826939024867, 4.7169599533081055, -1.5943401495562952]
 task = PickAndLift(
     threshold=.1,
     init_q=INIT_Q
@@ -197,3 +199,4 @@ env = Environment(
 address = ('', 5555)
 env = RemoteEnvServer(env, address)
 env.run()
+
