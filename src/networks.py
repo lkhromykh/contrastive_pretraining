@@ -83,18 +83,16 @@ class Encoder(hk.Module):
 
     def __call__(self, obs: types.Observation) -> Array:
         img = obs[types.IMG_KEY]
-        chex.assert_type(img, jnp.uint8)
-        img = img.astype(jnp.float32) / 128. - 1.
+        chex.assert_type(img, float)
         low_dim = [v for k, v in sorted(obs.items()) if k != types.IMG_KEY]
         low_dim = jnp.concatenate(low_dim, -1)
-        mlp = MLP((self.emb_dim,), 'tanh', 'layer', activate_final=True)
-        low_dim = mlp(low_dim)
 
         if self.early_fusion:
             emb = self._early(img, low_dim)
         else:
             emb = self._late(img, low_dim)
-        return emb
+        proj = MLP((self.emb_dim,), 'tanh', 'layer', activate_final=True)
+        return proj(emb)
 
     def _early(self, img: Array, low_dim: Array) -> Array:
         h, w = img.shape[-3:-1]
@@ -225,9 +223,10 @@ class CoderNetworks(NamedTuple):
                 return q_values.argmax(-1)
 
             def init():
+                img = dummy_obs[types.IMG_KEY]
+                img /= 255.
                 x = encoder(dummy_obs)
                 if cfg.supervised:
-                    img = dummy_obs[types.IMG_KEY] / 255.
                     projector(cnn(img))
                 else:
                     projector(x)

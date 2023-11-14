@@ -2,52 +2,39 @@ import jax
 import jax.numpy as jnp
 import chex
 import haiku as hk
+import dm_pix
 import numpy as np
 
 from src import types_ as types
 
 
-def random_crop(rng: chex.PRNGKey,
-                img: chex.Array,
-                crop_size: int
-                ) -> chex.Array:
-    """Crop HW dims preserving original shape via padding."""
-    chex.assert_scalar_positive(crop_size)
-    chex.assert_type(img, jnp.uint8)
-    chex.assert_rank(img, 3)
-
-    pad = (crop_size, crop_size)
-    nopad = (0, 0)
-    pad_with = 2 * (pad,) + (nopad,)
-    crop = jax.random.randint(rng, (2,), 0, 2 * crop_size + 1)
-    crop = jnp.concatenate([crop, jnp.zeros(1)], dtype=jnp.int32)
-    padded = jnp.pad(img, pad_with, mode='edge')
-    return jax.lax.dynamic_slice(padded, crop, img.shape)
-
-
-def batched_random_crop(rng: chex.PRNGKey,
-                        img: chex.Array,
-                        crop_size: int
-                        ) -> chex.Array:
+def batched_random_hue(rng: chex.PRNGKey,
+                       img: chex.Array,
+                       max_delta: float
+                       ) -> chex.Array:
+    chex.assert_type(img, int)
+    op = dm_pix.random_hue
     prefix = img.shape[:-3]
     if not prefix:
-        return random_crop(rng, img, crop_size)
+        return op(rng, img, max_delta)
     batch = np.prod(prefix, dtype=int)
     rngs = jax.random.split(rng, batch)
     rngs = rngs.reshape(prefix + (2,))
-    op = jax.vmap(random_crop, (0, 0, None))
+    op = jax.vmap(op, (0, 0, None))
     op = hk.BatchApply(op, len(prefix))
-    return op(rngs, img, crop_size)
+    return op(rngs, img, max_delta)
 
 
 def augmentation_fn(rng: chex.PRNGKey,
                     obs: types.Observation,
-                    crop_size: int
+                    *args,
                     ) -> types.Observation:
-    # inplace update differs for jit'ed and plain functions.
+    # Inplace update differs for jit'ed and plain functions,
     # so here explicit copy is used.
-    # egocentric view is not specifically translation invariant
     aobs = obs.copy()
     img = aobs[types.IMG_KEY]
-    aobs[types.IMG_KEY] = batched_random_crop(rng, img, crop_size)
+    chex.assert_type(img, jnp.uint8)
+    img = img.astype(jnp.float32) / 255.
+    img = batched_random_hue(rng, img, *args)
+    aobs[types.IMG_KEY] = img
     return aobs

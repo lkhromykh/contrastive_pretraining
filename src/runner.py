@@ -159,6 +159,7 @@ class Runner:
             state: TrainingState = self._open(Runner.AGENT)
         else:
             if status.encoder_exists:
+                print('Loading existing encoder weights.')
                 params: hk.Params = self._open(Runner.ENCODER).params
             else:
                 params = networks.init(next(self._rngseq))

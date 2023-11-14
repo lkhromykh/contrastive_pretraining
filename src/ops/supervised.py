@@ -20,7 +20,7 @@ def supervised(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
                 label: chex.Array
                 ) -> tuple[jax.Array, types.Metrics]:
         # chex.assert_type([img, label], [jnp.uint8, {float, int}])
-        view = augmentation_fn(rng, {types.IMG_KEY: img}, cfg.shift)
+        view = augmentation_fn(rng, {types.IMG_KEY: img}, cfg.hue_max_delta)
         emb = networks.backbone(params, view[types.IMG_KEY] / 255.)
         logits = networks.projector(params, emb)
         _, top1 = jax.lax.top_k(logits, 1)

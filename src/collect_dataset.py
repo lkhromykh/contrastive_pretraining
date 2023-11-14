@@ -7,7 +7,7 @@ from rltools import dmc_wrappers
 
 DIR = 'raw_demos'
 TEST = False
-TOTAL_DEMOS = 100
+TOTAL_DEMOS = 50
 
 
 def environment_loop(env, policy):

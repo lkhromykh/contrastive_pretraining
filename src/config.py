@@ -9,7 +9,6 @@ Layers = tuple[int, ...]
 class CoderConfig(Config):
     # BYOL
     # https://github.com/deepmind/deepmind-research/blob/master/byol/configs/byol.py
-    shift: int = 4
     byol_batch_size: int = 256
     byol_learning_rate: float = 1e-3
     byol_targets_update: float = 5e-3
@@ -18,6 +17,7 @@ class CoderConfig(Config):
     # Training hparams are shared with BYOL's one.
     supervised: bool = False
     mixup_lambda: float = 0.0
+    hue_max_delta: float = 1.
 
     # DrQ-like
     # https://github.com/facebookresearch/drqv2/blob/main/cfgs/config.yaml

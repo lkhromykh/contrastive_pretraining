@@ -1,5 +1,4 @@
 import jax
-import jax.numpy as jnp
 import haiku as hk
 import optax
 import chex
@@ -19,8 +18,8 @@ def byol(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
                 obs: types.Observation
                 ) -> tuple[jax.Array, types.Metrics]:
         rng1, rng2 = jax.random.split(rng)
-        view = augmentation_fn(rng1, obs, cfg.shift)
-        view_prime = augmentation_fn(rng2, obs, cfg.shift)
+        view = augmentation_fn(rng1, obs, cfg.hue_max_delta)
+        view_prime = augmentation_fn(rng2, obs, cfg.hue_max_delta)
 
         def byol_fn(v, vp):
             y = networks.encoder(params, v)

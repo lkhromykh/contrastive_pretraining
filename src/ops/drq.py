@@ -9,6 +9,7 @@ from src.config import CoderConfig
 from src.networks import CoderNetworks
 from src.training_state import TrainingState
 from src.ops.tb_lambda import tree_backup
+from src.ops.augmentations import augmentation_fn
 from src import types_ as types
 
 
@@ -33,11 +34,13 @@ def drq(cfg: CoderConfig, networks: CoderNetworks) -> types.StepFn:
             select = hk.BatchApply(jax.vmap(lambda q, a: q[a]))
             return select(q_values, actions)
 
-        del rng
+        k1, k2 = jax.random.split(rng)
+        target_obs_t = augmentation_fn(k1, obs_t, cfg.hue_max_delta)
+        obs_t = augmentation_fn(k2, obs_t, cfg.hue_max_delta)
         q_t = networks.critic(params, obs_t)
         a_dash_t = q_t.mean(QS_DIM).argmax(ACT_DIM)
         q_t = select_actions(q_t[:-1], a_t)
-        target_q_t = networks.critic(target_params, obs_t)
+        target_q_t = networks.critic(target_params, target_obs_t)
         pi_t = (a_t == a_dash_t[:-1]).astype(q_t.dtype)
         v_tp1 = select_actions(target_q_t, a_dash_t)[1:]
         target_q_t = select_actions(target_q_t[:-1], a_t)

@@ -1,5 +1,5 @@
-import chex
-chex.disable_asserts()
+# import chex
+# chex.disable_asserts()
 
 from src.config import CoderConfig
 from src.runner import Runner
