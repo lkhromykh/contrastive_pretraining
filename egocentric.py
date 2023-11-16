@@ -178,7 +178,7 @@ arm = nodes.TCPPose(
         speed=.2,
         absolute_mode=False
     )
-gripper = nodes.DiscreteGripper(HOST, force=5)
+gripper = nodes.DiscreteGripper(HOST, force=20)
 realsense = nodes.RealSense()
 scene_ = Scene(arm=arm, gripper=gripper, realsense=realsense)
 

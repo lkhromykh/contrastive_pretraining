@@ -17,20 +17,20 @@ class CoderConfig(Config):
     # Training hparams are shared with BYOL's one.
     supervised: bool = False
     mixup_lambda: float = 0.0
-    hue_max_delta: float = 1.
+    hue_max_delta: float = 0.5
 
     # DrQ-like
     # https://github.com/facebookresearch/drqv2/blob/main/cfgs/config.yaml
-    gamma: float = .96
+    gamma: float = .9
     lambda_: float = 1.
-    utd: int = 10
+    utd: int = 15
     detach_encoder: bool = False
     drq_batch_size: int = 32
     demo_fraction: float = 0.5  # 2302.02948
     drq_learning_rate: float = 1e-3
     drq_targets_update: float = 1e-2
     log_every: int = 5
-    pretrain_steps: int = 4
+    pretrain_steps: int = 16
 
     # Architecture
     activation: str = 'elu'
@@ -47,7 +47,7 @@ class CoderConfig(Config):
 
     # Train common
     jit: bool = True
-    replay_capacity: int = 500
+    replay_capacity: int = 2000
     max_grad: float = 20.
     weight_decay: float = 1e-6
 

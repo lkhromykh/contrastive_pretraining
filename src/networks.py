@@ -83,7 +83,8 @@ class Encoder(hk.Module):
 
     def __call__(self, obs: types.Observation) -> Array:
         img = obs[types.IMG_KEY]
-        chex.assert_type(img, float)
+        chex.assert_type(img, jnp.uint8)
+        img = img.astype(jnp.float32) / 128. - 1
         low_dim = [v for k, v in sorted(obs.items()) if k != types.IMG_KEY]
         low_dim = jnp.concatenate(low_dim, -1)
 
@@ -223,11 +224,9 @@ class CoderNetworks(NamedTuple):
                 return q_values.argmax(-1)
 
             def init():
-                img = dummy_obs[types.IMG_KEY]
-                img /= 255.
                 x = encoder(dummy_obs)
                 if cfg.supervised:
-                    projector(cnn(img))
+                    projector(cnn(dummy_obs[types.IMG_KEY]))
                 else:
                     projector(x)
                 predictor(x)

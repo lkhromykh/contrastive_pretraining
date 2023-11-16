@@ -12,7 +12,6 @@ def batched_random_hue(rng: chex.PRNGKey,
                        img: chex.Array,
                        max_delta: float
                        ) -> chex.Array:
-    chex.assert_type(img, int)
     op = dm_pix.random_hue
     prefix = img.shape[:-3]
     if not prefix:
@@ -36,5 +35,6 @@ def augmentation_fn(rng: chex.PRNGKey,
     chex.assert_type(img, jnp.uint8)
     img = img.astype(jnp.float32) / 255.
     img = batched_random_hue(rng, img, *args)
+    img = (255 * img).astype(jnp.uint8)
     aobs[types.IMG_KEY] = img
     return aobs

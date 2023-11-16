@@ -3,7 +3,7 @@ chex
 dm-haiku
 dm-pix
 -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-jax[cuda12_local]
+jax[cuda12_local]==0.4.16
 numpy
 optax
 rltools[all] @ git+https://github.com/lkhromykh/rltools.git@dev

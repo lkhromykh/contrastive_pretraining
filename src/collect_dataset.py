@@ -6,7 +6,7 @@ from collections import defaultdict
 from rltools import dmc_wrappers
 
 DIR = 'raw_demos'
-TOTAL_DEMOS = 50
+TOTAL_DEMOS = 128
 
 
 def environment_loop(env, policy):
@@ -55,7 +55,7 @@ if __name__ == '__main__':
         print('Episode: ', idx)
         tr = environment_loop(env, policy)
         print('Save this? [y/N]')
-        if input() == 'y':
+        if True or input() == 'y':
             path = os.path.join(DIR, f'traj{idx}')
             with open(path, 'wb') as f:
                 pickle.dump(tr, f)
